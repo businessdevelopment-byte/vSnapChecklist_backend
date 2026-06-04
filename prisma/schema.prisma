@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// USERS & DEPARTMENTS
+// ─────────────────────────────────────────
+
+model User {
+  id           Int        @id @default(autoincrement())
+  username     String     @unique
+  passwordHash String
+  email        String?    @unique
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  templateTasks     TaskTemplate[]      @relation("TemplateAssignedTo")
+  checklistEntries  ChecklistEntry[]    @relation("EntryAssignedTo")
+  transferredTo     ChecklistEntry[]    @relation("EntryTransferredTo")
+  delegationTasks   DelegationTask[]    @relation("DelegationAssignedTo")
+  delegationHistory DelegationHistory[] @relation("HistorySubmittedBy")
+  attendanceLogs    AttendanceLog[]
+  transfersFrom     TaskTransferLog[]   @relation("TransferFrom")
+  transfersTo       TaskTransferLog[]   @relation("TransferTo")
+  transferredBy     TaskTransferLog[]   @relation("TransferBy")
+
+  @@index([username])
+  @@index([departmentId])
+  @@map("users")
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  givenBy   String?
+  createdAt DateTime @default(now())
+
+  users            User[]
+  taskTemplates    TaskTemplate[]
+  checklistEntries ChecklistEntry[]
+  delegationTasks  DelegationTask[]
+
+  @@map("departments")
+}
+
+// ─────────────────────────────────────────
+// TASK TEMPLATES  ("Unique" sheet)
+// One row per unique recurring task per user
+// ─────────────────────────────────────────
+
+model TaskTemplate {
+  id                Int        @id @default(autoincrement())
+  taskCode          String     @unique // e.g. "T001" — the business Task ID
+  departmentId      Int
+  department        Department @relation(fields: [departmentId], references: [id])
+  givenBy           String
+  assignedUserId    Int
+  assignedUser      User       @relation("TemplateAssignedTo", fields: [assignedUserId], references: [id])
+  description       String
+  startDate         DateTime   @db.Date // When to begin generating instances
+  lastDate          DateTime?  @db.Date // When to stop (null = indefinite)
+  frequency         Frequency
+  enableReminders   Boolean    @default(true)
+  requireAttachment Boolean    @default(false)
+  isActive          Boolean    @default(true)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  entries ChecklistEntry[]
+
+  @@index([assignedUserId, isActive]) // "My active templates"
+  @@index([frequency, startDate]) // Task generation sweep
+  @@index([departmentId])
+  @@map("task_templates")
+}
+
+// ─────────────────────────────────────────
+// CHECKLIST ENTRIES  ("Checklist" sheet)
+// One row per day per task instance
+// ─────────────────────────────────────────
+
+model ChecklistEntry {
+  id        BigInt @id @default(autoincrement())
+  templateId Int?
+  template  TaskTemplate? @relation(fields: [templateId], references: [id])
+  taskCode  String // Copied from template at generation time
+
+  // Denormalized for read speed (avoids JOIN on every checklist page load)
+  departmentId      Int
+  department        Department @relation(fields: [departmentId], references: [id])
+  givenBy           String
+  assignedUserId    Int
+  assignedUser      User       @relation("EntryAssignedTo", fields: [assignedUserId], references: [id])
+  description       String
+  taskStartDate     DateTime   @db.Date // The specific date this instance is for
+  taskStartTime     String? // HH:MM stored separately
+  frequency         Frequency
+  enableReminders   Boolean    @default(true)
+  requireAttachment Boolean    @default(false)
+
+  // Completion fields — filled when user submits
+  actualDate       DateTime?        @db.Date // Col K
+  delayDays        Int? // Col L — computed on submit
+  completionStatus CompletionStatus? // Col M — Yes/No/Not Required
+  remarks          String? // Col N
+  uploadedImageUrl String? // Col O
+  adminDone        Boolean          @default(false) // Col P
+  leaveStatus      Boolean          @default(false) // Col Q
+  transferredToId  Int? // Col R — Assign To
+  transferredTo    User?            @relation("EntryTransferredTo", fields: [transferredToId], references: [id])
+  remarks1         String? // Col S
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transferLogs TaskTransferLog[]
+
+  // ── HOT INDEXES ──
+  @@index([assignedUserId, taskStartDate]) // "My tasks for today" — most used
+  @@index([assignedUserId, taskStartDate, actualDate]) // Pending tasks filter
+  @@index([taskStartDate, assignedUserId]) // Admin: all staff for a date
+  @@index([departmentId, taskStartDate]) // Admin: department view
+  @@index([templateId, taskStartDate]) // Generation dedup check
+  @@unique([templateId, taskStartDate]) // One entry per template per day
+  @@map("checklist_entries")
+}
+
+// ─────────────────────────────────────────
+// DELEGATION TASKS  ("DELEGATION" sheet)
+// One-time / Critical / Urgent tasks
+// ─────────────────────────────────────────
+
+model DelegationTask {
+  id                Int                 @id @default(autoincrement())
+  taskCode          String              @unique
+  departmentId      Int
+  department        Department          @relation(fields: [departmentId], references: [id])
+  givenBy           String
+  assignedUserId    Int
+  assignedUser      User                @relation("DelegationAssignedTo", fields: [assignedUserId], references: [id])
+  description       String
+  taskStartDate     DateTime  // Includes time
+  taskEndDate       DateTime? // Optional end date/time
+  frequency         DelegationFrequency
+  enableReminders   Boolean             @default(true)
+  requireAttachment Boolean             @default(false)
+  status            DelegationStatus    @default(PENDING)
+  rating            Int?
+  isDeleted         Boolean             @default(false) // Col V — soft delete
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  history DelegationHistory[]
+
+  @@index([assignedUserId, status]) // "My active delegation tasks"
+  @@index([taskStartDate, status]) // Date-range dashboard queries
+  @@index([departmentId])
+  @@index([assignedUserId, isDeleted, status]) // Pending view
+  @@map("delegation_tasks")
+}
+
+// ─────────────────────────────────────────
+// DELEGATION HISTORY  ("DELEGATION DONE" sheet)
+// One row per submission
+// ─────────────────────────────────────────
+
+model DelegationHistory {
+  id                Int            @id @default(autoincrement())
+  delegationTaskId  Int
+  delegationTask    DelegationTask @relation(fields: [delegationTaskId], references: [id], onDelete: Cascade)
+  submittedByUserId Int
+  submittedBy       User           @relation("HistorySubmittedBy", fields: [submittedByUserId], references: [id])
+
+  submissionDate  DateTime      @db.Date
+  status          HistoryStatus // Done / Extend date
+  nextTargetDate  DateTime?     @db.Date
+  remarks         String?
+  imageUrl        String?
+  taskDescription String // Snapshot at submission time
+  givenBy         String?
+  adminDoneStatus String? // "Done" when admin marks it
+  isLate          Boolean       @default(false) // submitted after deadline?
+
+  createdAt DateTime @default(now())
+
+  @@index([delegationTaskId])
+  @@index([submittedByUserId, submissionDate])
+  @@map("delegation_history")
+}
+
+// ─────────────────────────────────────────
+// TASK TRANSFER LOG  (audit trail)
+// ─────────────────────────────────────────
+
+model TaskTransferLog {
+  id               Int             @id @default(autoincrement())
+  checklistEntryId BigInt?
+  checklistEntry   ChecklistEntry? @relation(fields: [checklistEntryId], references: [id])
+  templateId       Int? // if template was also transferred
+
+  fromUserId          Int
+  fromUser            User     @relation("TransferFrom", fields: [fromUserId], references: [id])
+  toUserId            Int
+  toUser              User     @relation("TransferTo", fields: [toUserId], references: [id])
+  transferredByUserId Int
+  transferredBy       User     @relation("TransferBy", fields: [transferredByUserId], references: [id])
+  reason              String?
+  transferredAt       DateTime @default(now())
+
+  @@index([checklistEntryId])
+  @@index([fromUserId, transferredAt])
+  @@index([toUserId, transferredAt])
+  @@map("task_transfer_logs")
+}
+
+// ─────────────────────────────────────────
+// HOLIDAYS / WORKING DAY CALENDAR
+// ─────────────────────────────────────────
+
+model Holiday {
+  id        Int      @id @default(autoincrement())
+  date      DateTime @db.Date
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([date])
+  @@map("holidays")
+}
+
+// ─────────────────────────────────────────
+// ATTENDANCE LOG
+// ─────────────────────────────────────────
+
+model AttendanceLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  loginAt   DateTime @default(now())
+  ipAddress String?
+
+  @@index([userId, loginAt])
+  @@map("attendance_logs")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum Frequency {
+  DAILY
+  ALTERNATE_DAY
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  END_OF_1ST_WEEK
+  END_OF_2ND_WEEK
+  END_OF_3RD_WEEK
+  END_OF_4TH_WEEK
+  END_OF_LAST_WEEK
+}
+
+enum DelegationFrequency {
+  ONE_TIME
+  CRITICAL
+  URGENT
+}
+
+enum DelegationStatus {
+  PENDING
+  PLANNED
+  VERIFY_PENDING
+  DONE
+}
+
+enum CompletionStatus {
+  YES
+  NO
+  NOT_REQUIRED
+}
+
+enum HistoryStatus {
+  DONE
+  EXTEND_DATE
+}
