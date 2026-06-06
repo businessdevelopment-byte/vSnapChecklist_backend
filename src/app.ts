@@ -1,4 +1,5 @@
 import express from "express";
+import path from "path";
 
 // BigInt is not JSON-serializable by default; serialize as string so res.json() works
 // (Frontend ChecklistEntry.id is typed as string, so this is safe)
@@ -38,6 +39,12 @@ app.use(express.urlencoded({ extended: true }));
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", env: env.NODE_ENV });
 });
+
+// Serve uploaded files — set cross-origin header so images load when embedded
+app.use("/uploads", (_req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+}, express.static(path.join(process.cwd(), "uploads")));
 
 app.use("/api", routes);
 

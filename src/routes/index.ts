@@ -8,6 +8,7 @@ import userRoutes from "./user.routes";
 import departmentRoutes from "./department.routes";
 import holidayRoutes from "./holiday.routes";
 import systemSettingsRoutes from "./systemSettings.routes";
+import uploadRoutes from "./upload.routes";
 
 const router = Router();
 
@@ -19,6 +20,7 @@ router.use("/transfer", transferRoutes);
 router.use("/users", userRoutes);
 router.use("/departments", departmentRoutes);
 router.use("/holidays", holidayRoutes);
-router.use("/system-settings", systemSettingsRoutes); // v1
+router.use("/system-settings", systemSettingsRoutes);
+router.use("/upload", uploadRoutes);
 
 export default router;

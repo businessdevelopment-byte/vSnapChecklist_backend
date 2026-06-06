@@ -112,7 +112,7 @@ export const checklistController = {
   async markLeave(req: Request, res: Response): Promise<void> {
     try {
       const input = leaveSchema.parse(req.body);
-      const result = await checklistService.markLeave(input, req.user!.role);
+      const result = await checklistService.markLeave(input, req.user!.userId, req.user!.role);
       sendSuccess(res, result, `${result.count} tasks marked as leave`);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

@@ -572,9 +572,9 @@ export const checklistService = {
     });
   },
 
-  async markLeave(input: LeaveInput, markedByRole: string) {
-    if (markedByRole !== "ADMIN") {
-      throw Object.assign(new Error("Only admin can mark leave"), { status: 403 });
+  async markLeave(input: LeaveInput, requesterId: number, markedByRole: string) {
+    if (markedByRole !== "ADMIN" && input.userId !== requesterId) {
+      throw Object.assign(new Error("You can only mark leave for yourself"), { status: 403 });
     }
 
     const start = new Date(input.startDate);
