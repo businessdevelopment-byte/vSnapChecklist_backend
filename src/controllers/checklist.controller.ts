@@ -58,11 +58,26 @@ export const checklistController = {
   async getStaffStats(req: Request, res: Response): Promise<void> {
     try {
       const departmentId = req.query.departmentId ? Number(req.query.departmentId) : undefined;
-      const stats = await checklistService.getStaffStats(departmentId);
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const stats = await checklistService.getStaffStats({ startDate, endDate, departmentId });
       sendSuccess(res, stats, "Staff stats fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch staff stats", e.status ?? 500);
+    }
+  },
+
+  async getMonthlyStats(req: Request, res: Response): Promise<void> {
+    try {
+      const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+      const userId = req.query.userId ? Number(req.query.userId) : undefined;
+      const departmentId = req.query.departmentId ? Number(req.query.departmentId) : undefined;
+      const stats = await checklistService.getMonthlyStats(year, userId, departmentId);
+      sendSuccess(res, stats, "Monthly stats fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch monthly stats", e.status ?? 500);
     }
   },
 

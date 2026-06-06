@@ -307,6 +307,7 @@ enum CompletionStatus {
   YES
   NO
   NOT_REQUIRED
+  NOT_APPLICABLE
 }
 
 enum HistoryStatus {

@@ -13,7 +13,7 @@ export const checklistQuerySchema = z.object({
 });
 
 export const submitChecklistSchema = z.object({
-  completionStatus: z.enum(["YES", "NO", "NOT_REQUIRED"]),
+  completionStatus: z.enum(["YES", "NO", "NOT_REQUIRED", "NOT_APPLICABLE"]),
   remarks: z.string().optional(),
   uploadedImageUrl: z.string().url().optional(),
   remarks1: z.string().optional(),

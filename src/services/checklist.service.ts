@@ -443,14 +443,19 @@ export const checklistService = {
     return { total, completed, pending, overdue, leave, completionRate: parseFloat(completionRate) };
   },
 
-  async getStaffStats(departmentId?: number) {
+  async getStaffStats(params?: { startDate?: Date; endDate?: Date; departmentId?: number }) {
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setUTCHours(23, 59, 59, 999);
+
+    const { startDate, endDate, departmentId } = params ?? {};
 
     const where: Prisma.ChecklistEntryWhereInput = {
-      taskStartDate: today,
       leaveStatus: false,
       ...(departmentId ? { departmentId } : {}),
+      taskStartDate:
+        startDate && endDate
+          ? { gte: startDate, lte: endDate }
+          : { lte: today },
     };
 
     const entries = await prisma.checklistEntry.findMany({
@@ -459,28 +464,78 @@ export const checklistService = {
         assignedUserId: true,
         actualDate: true,
         adminDone: true,
-        assignedUser: { select: { username: true } },
+        assignedUser: { select: { username: true, email: true } },
       },
     });
 
-    const staffMap = new Map<number, { username: string; total: number; completed: number }>();
+    const staffMap = new Map<number, { username: string; email: string; total: number; completed: number }>();
     for (const e of entries) {
       if (!staffMap.has(e.assignedUserId)) {
-        staffMap.set(e.assignedUserId, { username: e.assignedUser.username, total: 0, completed: 0 });
+        staffMap.set(e.assignedUserId, {
+          username: e.assignedUser.username,
+          email: e.assignedUser.email ?? "",
+          total: 0,
+          completed: 0,
+        });
       }
       const s = staffMap.get(e.assignedUserId)!;
       s.total++;
       if (e.actualDate || e.adminDone) s.completed++;
     }
 
-    return Array.from(staffMap.entries()).map(([id, s]) => ({
-      userId: id,
-      username: s.username,
-      total: s.total,
-      completed: s.completed,
-      pending: s.total - s.completed,
-      progress: s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
+    return Array.from(staffMap.entries())
+      .map(([id, s]) => ({
+        userId: id,
+        username: s.username,
+        email: s.email,
+        total: s.total,
+        completed: s.completed,
+        pending: s.total - s.completed,
+        progress: s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
+      }))
+      .sort((a, b) => b.progress - a.progress);
+  },
+
+  async getMonthlyStats(year: number, userId?: number, departmentId?: number) {
+    const today = new Date();
+    today.setUTCHours(23, 59, 59, 999);
+
+    const startOfYear = new Date(Date.UTC(year, 0, 1));
+    const endOfYear =
+      year === today.getUTCFullYear()
+        ? today
+        : new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
+
+    const where: Prisma.ChecklistEntryWhereInput = {
+      taskStartDate: { gte: startOfYear, lte: endOfYear },
+      leaveStatus: false,
+      ...(userId ? { assignedUserId: userId } : {}),
+      ...(departmentId ? { departmentId } : {}),
+    };
+
+    const entries = await prisma.checklistEntry.findMany({
+      where,
+      select: { taskStartDate: true, actualDate: true, adminDone: true },
+    });
+
+    const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const months = Array.from({ length: 12 }, (_, i) => ({
+      month: i + 1,
+      monthName: MONTH_NAMES[i],
+      completed: 0,
+      pending: 0,
     }));
+
+    for (const e of entries) {
+      const m = new Date(e.taskStartDate).getUTCMonth();
+      if (e.actualDate || e.adminDone) {
+        months[m].completed++;
+      } else {
+        months[m].pending++;
+      }
+    }
+
+    return months;
   },
 
   async submitEntry(entryId: bigint, input: SubmitChecklistInput, submittedByUserId: number, requesterRole: string) {
