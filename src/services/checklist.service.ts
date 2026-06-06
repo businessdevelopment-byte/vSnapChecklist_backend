@@ -17,17 +17,23 @@ function dateKey(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
-/** True if the date is Mon-Sat AND not in the holiday set */
-function isWorkingDay(date: Date, holidayKeys: Set<string>): boolean {
+/** True if the date is a working day (respects skipSundays setting + holidays) */
+function isWorkingDay(date: Date, holidayKeys: Set<string>, skipSundays: boolean): boolean {
   const dow = date.getUTCDay(); // 0=Sun, 6=Sat
-  if (dow === 0) return false; // Sunday off
+  if (skipSundays && dow === 0) return false;
   return !holidayKeys.has(dateKey(date));
 }
 
-/** Load all holiday date keys from DB (cached per service call via argument passing) */
-async function loadHolidayKeys(): Promise<Set<string>> {
-  const rows = await prisma.holiday.findMany({ select: { date: true } });
-  return new Set(rows.map((r) => dateKey(r.date)));
+/** Load holiday keys + skipSundays setting from DB together */
+async function loadCalendarConfig(): Promise<{ holidayKeys: Set<string>; skipSundays: boolean }> {
+  const [holidayRows, settings] = await Promise.all([
+    prisma.holiday.findMany({ select: { date: true } }),
+    prisma.systemSettings.findFirst(),
+  ]);
+  return {
+    holidayKeys: new Set(holidayRows.map((r) => dateKey(r.date))),
+    skipSundays: settings?.skipSundays ?? true,
+  };
 }
 
 // ─────────────────────────────────────────
@@ -136,7 +142,8 @@ async function backfillUser(
   userId: number,
   fromDate: Date,
   toDate: Date,
-  holidayKeys: Set<string>
+  holidayKeys: Set<string>,
+  skipSundays: boolean
 ): Promise<number> {
   const from = new Date(fromDate);
   from.setUTCHours(0, 0, 0, 0);
@@ -159,7 +166,7 @@ async function backfillUser(
   const workingDays: Date[] = [];
   const cursor = new Date(from);
   while (cursor <= to) {
-    if (isWorkingDay(cursor, holidayKeys)) {
+    if (isWorkingDay(cursor, holidayKeys, skipSundays)) {
       workingDays.push(new Date(cursor));
     }
     cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -235,10 +242,10 @@ export const checklistService = {
     const today = new Date(targetDate);
     today.setUTCHours(0, 0, 0, 0);
 
-    const holidayKeys = await loadHolidayKeys();
+    const { holidayKeys, skipSundays } = await loadCalendarConfig();
 
     // Only proceed if targetDate is a working day
-    if (!isWorkingDay(today, holidayKeys)) return;
+    if (!isWorkingDay(today, holidayKeys, skipSundays)) return;
 
     // Check if user has any templates
     const hasTemplates = await prisma.taskTemplate.count({
@@ -269,12 +276,12 @@ export const checklistService = {
       fromDate = today;
     }
 
-    await backfillUser(userId, fromDate, today, holidayKeys);
+    await backfillUser(userId, fromDate, today, holidayKeys, skipSundays);
   },
 
   /** Admin endpoint: bulk backfill all users for a date range */
   async backfillAll(fromDate: Date, toDate: Date): Promise<{ users: number; created: number }> {
-    const holidayKeys = await loadHolidayKeys();
+    const { holidayKeys, skipSundays } = await loadCalendarConfig();
     const activeUsers = await prisma.user.findMany({
       where: { status: "ACTIVE" },
       select: { id: true },
@@ -282,7 +289,7 @@ export const checklistService = {
 
     let totalCreated = 0;
     for (const u of activeUsers) {
-      totalCreated += await backfillUser(u.id, fromDate, toDate, holidayKeys);
+      totalCreated += await backfillUser(u.id, fromDate, toDate, holidayKeys, skipSundays);
     }
     return { users: activeUsers.length, created: totalCreated };
   },

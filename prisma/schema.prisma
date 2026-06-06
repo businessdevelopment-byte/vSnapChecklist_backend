@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ─────────────────────────────────────────
@@ -220,6 +219,17 @@ model TaskTransferLog {
   @@index([fromUserId, transferredAt])
   @@index([toUserId, transferredAt])
   @@map("task_transfer_logs")
+}
+
+// ─────────────────────────────────────────
+// SYSTEM SETTINGS (global config)
+// ─────────────────────────────────────────
+
+model SystemSettings {
+  id          Int     @id @default(1) // singleton row
+  skipSundays Boolean @default(true)
+
+  @@map("system_settings")
 }
 
 // ─────────────────────────────────────────

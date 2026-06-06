@@ -3,10 +3,11 @@
 ## Stack
 
 - **Node.js + Express 5**, TypeScript (strict, CommonJS output)
-- **Prisma v6** ORM with **PostgreSQL**
+- **Prisma v7** ORM with **PostgreSQL** (via `@prisma/adapter-pg`)
 - **Zod** — request body and query param validation
 - **jsonwebtoken** — JWT auth (HS256)
 - **bcryptjs** — password hashing
+- **pg** — PostgreSQL driver for adapter
 
 ## Architecture: Controller → Service → Prisma
 
@@ -25,7 +26,7 @@ Request
 - Controllers must call `sendSuccess()` / `sendError()` from `src/utils/apiResponse.ts`
 - All async controllers are wrapped in try/catch
 
-## Database Schema (7 tables)
+## Database Schema (10 tables)
 
 | Table | Maps To | Purpose |
 |---|---|---|
@@ -37,6 +38,8 @@ Request
 | `delegation_history` | "DELEGATION DONE" sheet | Submission records |
 | `task_transfer_logs` | — | Audit trail for task transfers |
 | `attendance_logs` | "Attendance Login" sheet | Login tracking |
+| `holidays` | — | Holiday dates for working calendar (excludes task generation) |
+| `system_settings` | — | Global settings (e.g., `skipSundays: boolean`) |
 
 ## Task Generation (lazy, on-demand)
 

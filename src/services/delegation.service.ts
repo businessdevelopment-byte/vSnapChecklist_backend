@@ -125,9 +125,9 @@ export const delegationService = {
       },
     });
 
-    // After user submits "Done" → move task to VERIFY_PENDING for admin review
+    // After user submits "Done" → mark DONE immediately (no admin approval step)
     // After user submits "Extend date" → move to PLANNED
-    const newStatus = input.status === "DONE" ? "VERIFY_PENDING" : "PLANNED";
+    const newStatus = input.status === "DONE" ? "DONE" : "PLANNED";
     await prisma.delegationTask.update({ where: { id }, data: { status: newStatus } });
 
     return history;
