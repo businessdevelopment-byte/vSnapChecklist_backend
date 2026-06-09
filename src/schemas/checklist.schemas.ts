@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const checklistQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().positive().max(200).default(100),
+  limit: z.coerce.number().int().positive().max(500).default(100),
   date: z.string().date().optional(), // specific date (default: today)
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),

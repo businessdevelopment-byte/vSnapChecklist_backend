@@ -291,8 +291,7 @@ export const checklistService = {
   async getEntries(query: ChecklistQueryInput, requesterId: number, requesterRole: string) {
     const { skip, take, page, limit } = getPaginationParams(query);
 
-    const targetDate = query.date ? new Date(query.date) : new Date();
-    targetDate.setUTCHours(0, 0, 0, 0);
+    const targetDate = toUtcDay(query.date ? new Date(query.date) : new Date());
 
     const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
 
@@ -585,5 +584,49 @@ export const checklistService = {
       },
       data: { leaveStatus: true, actualDate: start },
     });
+  },
+
+  async getCalendarSummary(
+    startDate: string,
+    endDate: string,
+    requesterId: number,
+    requesterRole: string,
+    filterUserId?: number
+  ) {
+    const today = toUtcDay(new Date());
+    const userId = requesterRole === "ADMIN" ? filterUserId : requesterId;
+
+    // Materialize tasks so today's entries exist
+    if (userId) {
+      await this.materializeTasks(userId, today);
+    } else if (requesterRole === "ADMIN" && !filterUserId) {
+      const activeUsers = await prisma.user.findMany({
+        where: { status: "ACTIVE" },
+        select: { id: true },
+      });
+      await Promise.all(activeUsers.map((u) => this.materializeTasks(u.id, today)));
+    }
+
+    const where: Prisma.ChecklistEntryWhereInput = {
+      taskStartDate: {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      },
+    };
+    if (userId) where.assignedUserId = userId;
+
+    const groups = await prisma.checklistEntry.groupBy({
+      by: ["taskStartDate"],
+      where,
+      _count: { _all: true },
+      orderBy: { taskStartDate: "asc" },
+    });
+
+    const summary: Record<string, number> = {};
+    for (const g of groups) {
+      const key = toUtcDay(new Date(g.taskStartDate)).toISOString().slice(0, 10);
+      summary[key] = (summary[key] ?? 0) + g._count._all;
+    }
+    return summary;
   },
 };
