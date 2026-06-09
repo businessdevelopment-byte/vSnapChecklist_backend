@@ -8,6 +8,7 @@ import {
   adminDoneDelegationSchema,
   delegationQuerySchema,
   delegationHistoryQuerySchema,
+  delegationMisQuerySchema,
 } from "../schemas/delegation.schemas";
 
 export const delegationController = {
@@ -109,6 +110,28 @@ export const delegationController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch counts", e.status ?? 500);
+    }
+  },
+
+  async getMisStats(req: Request, res: Response): Promise<void> {
+    try {
+      const query = delegationMisQuerySchema.parse(req.query);
+      const data = await delegationService.getMisStats(query, req.user!.role, req.user!.userId);
+      sendSuccess(res, data, "Delegation MIS stats fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch delegation MIS stats", e.status ?? 500);
+    }
+  },
+
+  async getMisStaffStats(req: Request, res: Response): Promise<void> {
+    try {
+      const query = delegationMisQuerySchema.parse(req.query);
+      const data = await delegationService.getMisStaffStats(query);
+      sendSuccess(res, data, "Delegation MIS staff stats fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch delegation MIS staff stats", e.status ?? 500);
     }
   },
 };

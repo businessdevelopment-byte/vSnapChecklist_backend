@@ -6,6 +6,7 @@ import type {
   SubmitDelegationInput,
   DelegationQueryInput,
   DelegationHistoryQueryInput,
+  DelegationMisQueryInput,
 } from "../schemas/delegation.schemas";
 
 export const delegationService = {
@@ -80,6 +81,7 @@ export const delegationService = {
         frequency: input.frequency,
         enableReminders: input.enableReminders ?? true,
         requireAttachment: input.requireAttachment ?? false,
+        sampleImageUrl: input.sampleImageUrl ?? null,
       },
       include: {
         assignedUser: { select: { id: true, username: true } },
@@ -175,6 +177,82 @@ export const delegationService = {
       where: { id: { in: historyIds } },
       data: { adminDoneStatus: "Done" },
     });
+  },
+
+  async getMisStats(query: DelegationMisQueryInput, requesterRole: string, requesterId: number) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const effectiveUserId = requesterRole === "ADMIN" ? query.userId : requesterId;
+    const base: Prisma.DelegationTaskWhereInput = { isDeleted: false };
+    if (effectiveUserId) base.assignedUserId = effectiveUserId;
+    if (query.startDate || query.endDate) {
+      base.taskStartDate = {
+        ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+        ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+      };
+    }
+
+    const [total, done, overdue] = await Promise.all([
+      prisma.delegationTask.count({ where: base }),
+      prisma.delegationTask.count({ where: { ...base, status: "DONE" } }),
+      prisma.delegationTask.count({
+        where: { ...base, status: { not: "DONE" }, taskStartDate: { lt: today } },
+      }),
+    ]);
+
+    const pending = total - done;
+    const completionRate = total > 0 ? parseFloat(((done / total) * 100).toFixed(1)) : 0;
+    return { total, done, pending, overdue, completionRate };
+  },
+
+  async getMisStaffStats(query: Pick<DelegationMisQueryInput, "startDate" | "endDate">) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const where: Prisma.DelegationTaskWhereInput = { isDeleted: false };
+    if (query.startDate || query.endDate) {
+      where.taskStartDate = {
+        ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+        ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+      };
+    }
+
+    const tasks = await prisma.delegationTask.findMany({
+      where,
+      select: {
+        assignedUserId: true,
+        status: true,
+        assignedUser: { select: { username: true, email: true } },
+      },
+    });
+
+    const map = new Map<number, { username: string; email: string; total: number; done: number }>();
+    for (const t of tasks) {
+      if (!map.has(t.assignedUserId)) {
+        map.set(t.assignedUserId, {
+          username: t.assignedUser.username,
+          email: t.assignedUser.email ?? "",
+          total: 0,
+          done: 0,
+        });
+      }
+      const s = map.get(t.assignedUserId)!;
+      s.total++;
+      if (t.status === "DONE") s.done++;
+    }
+
+    return Array.from(map.entries())
+      .map(([userId, s]) => ({
+        userId,
+        username: s.username,
+        email: s.email,
+        total: s.total,
+        done: s.done,
+        pending: s.total - s.done,
+        progress: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0,
+      }))
+      .sort((a, b) => b.progress - a.progress);
   },
 
   async getStatusCounts(userId: number | undefined, requesterRole: string, requesterId: number) {

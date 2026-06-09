@@ -223,6 +223,7 @@ async function backfillUser(
         frequency: template.frequency,
         enableReminders: template.enableReminders,
         requireAttachment: template.requireAttachment,
+        sampleImageUrl: template.sampleImageUrl ?? null,
       });
     }
   }

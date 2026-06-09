@@ -77,6 +77,7 @@ export const templateService = {
         frequency: input.frequency,
         enableReminders: input.enableReminders ?? true,
         requireAttachment: input.requireAttachment ?? false,
+        sampleImageUrl: input.sampleImageUrl ?? null,
       },
       include: {
         department: { select: { id: true, name: true } },

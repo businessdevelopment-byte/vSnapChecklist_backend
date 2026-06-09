@@ -71,6 +71,7 @@ model TaskTemplate {
   frequency         Frequency
   enableReminders   Boolean          @default(true)
   requireAttachment Boolean          @default(false)
+  sampleImageUrl    String?
   isActive          Boolean          @default(true)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
@@ -97,6 +98,7 @@ model ChecklistEntry {
   frequency         Frequency
   enableReminders   Boolean           @default(true)
   requireAttachment Boolean           @default(false)
+  sampleImageUrl    String?
   actualDate        DateTime?         @db.Date
   delayDays         Int?
   completionStatus  CompletionStatus?
@@ -134,6 +136,7 @@ model DelegationTask {
   frequency         DelegationFrequency
   enableReminders   Boolean             @default(true)
   requireAttachment Boolean             @default(false)
+  sampleImageUrl    String?
   status            DelegationStatus    @default(PENDING)
   rating            Int?
   isDeleted         Boolean             @default(false)

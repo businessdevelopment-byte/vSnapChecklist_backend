@@ -24,6 +24,7 @@ export const createTemplateSchema = z.object({
   ]),
   enableReminders: z.boolean().default(true),
   requireAttachment: z.boolean().default(false),
+  sampleImageUrl: z.string().url().optional().nullable(),
 });
 
 export const updateTemplateSchema = createTemplateSchema

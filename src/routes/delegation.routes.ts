@@ -7,9 +7,11 @@ const router = Router();
 router.use(authMiddleware);
 
 // Aggregates — before /:id to avoid capture
-router.get("/history", delegationController.getHistory);
-router.get("/status-counts", delegationController.getStatusCounts);
-router.post("/admin-done", delegationController.markHistoryAdminDone);  // admin
+router.get("/history",          delegationController.getHistory);
+router.get("/status-counts",    delegationController.getStatusCounts);
+router.get("/mis-stats",        delegationController.getMisStats);
+router.get("/mis-staff-stats",  delegationController.getMisStaffStats);
+router.post("/admin-done",      delegationController.markHistoryAdminDone);  // admin
 
 // CRUD
 router.get("/", delegationController.getAll);
