@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { userService } from "../services/user.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
-import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema } from "../schemas/user.schemas";
+import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema } from "../schemas/user.schemas";
 
 export const userController = {
   async getAll(_req: Request, res: Response): Promise<void> {
@@ -86,6 +86,18 @@ export const userController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to update department", e.status ?? 400);
+    }
+  },
+
+  async updateDepartments(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const input = updateUserDeptsSchema.parse(req.body);
+      const user = await userService.updateDepartments(Number(req.params.id), input);
+      sendSuccess(res, user, "User departments updated");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to update departments", e.status ?? 400);
     }
   },
 
