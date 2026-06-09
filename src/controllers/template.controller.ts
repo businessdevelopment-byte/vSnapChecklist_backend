@@ -5,6 +5,7 @@ import {
   createTemplateSchema,
   updateTemplateSchema,
   templateQuerySchema,
+  importTemplatesSchema,
 } from "../schemas/template.schemas";
 
 export const templateController = {
@@ -58,6 +59,17 @@ export const templateController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to deactivate template", e.status ?? 400);
+    }
+  },
+
+  async importMany(req: Request, res: Response): Promise<void> {
+    try {
+      const input = importTemplatesSchema.parse(req.body);
+      const result = await templateService.importMany(input);
+      sendSuccess(res, result, "Template import complete");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Import failed", e.status ?? 400);
     }
   },
 };

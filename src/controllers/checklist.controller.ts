@@ -120,6 +120,25 @@ export const checklistController = {
     }
   },
 
+  async getCalendarSummary(req: Request, res: Response): Promise<void> {
+    try {
+      const startDate = (req.query.startDate as string) ?? new Date().toISOString().slice(0, 7) + "-01";
+      const endDate   = (req.query.endDate   as string) ?? new Date().toISOString().slice(0, 10);
+      const filterUserId = req.query.userId ? Number(req.query.userId) : undefined;
+      const summary = await checklistService.getCalendarSummary(
+        startDate,
+        endDate,
+        req.user!.userId,
+        req.user!.role,
+        filterUserId
+      );
+      sendSuccess(res, summary, "Calendar summary fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch calendar summary", e.status ?? 500);
+    }
+  },
+
   async backfillAll(req: Request, res: Response): Promise<void> {
     try {
       if (req.user!.role !== "ADMIN") {

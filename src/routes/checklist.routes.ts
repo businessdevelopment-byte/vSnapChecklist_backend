@@ -10,6 +10,7 @@ router.use(authMiddleware);
 router.get("/stats", checklistController.getStats);
 router.get("/staff-stats", checklistController.getStaffStats); // admin
 router.get("/monthly-stats", checklistController.getMonthlyStats); // admin
+router.get("/calendar-summary", checklistController.getCalendarSummary);
 router.get("/history", checklistController.getHistory);
 
 // Main list — triggers lazy task generation

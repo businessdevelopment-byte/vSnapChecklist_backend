@@ -17,6 +17,16 @@ function dateKey(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
+/**
+ * Converts a Date returned by pg for a DATE column to UTC midnight of the
+ * correct calendar date. pg applies the local timezone offset when converting
+ * PostgreSQL DATE → JS Date, so e.g. DATE 2026-06-08 in an IST (UTC+5:30)
+ * server becomes 2026-06-07T18:30:00Z. Using local date components corrects this.
+ */
+function toUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+
 /** True if the date is a working day (respects skipSundays setting + holidays) */
 function isWorkingDay(date: Date, holidayKeys: Set<string>, skipSundays: boolean): boolean {
   const dow = date.getUTCDay(); // 0=Sun, 6=Sat
@@ -192,10 +202,8 @@ async function backfillUser(
   const toCreate: Prisma.ChecklistEntryCreateManyInput[] = [];
 
   for (const template of templates) {
-    const tStart = new Date(template.startDate);
-    tStart.setUTCHours(0, 0, 0, 0);
-    const tEnd = template.lastDate ? new Date(template.lastDate) : null;
-    if (tEnd) tEnd.setUTCHours(0, 0, 0, 0);
+    const tStart = toUtcDay(new Date(template.startDate));
+    const tEnd = template.lastDate ? toUtcDay(new Date(template.lastDate)) : null;
 
     for (const day of workingDays) {
       if (day < tStart) continue;
@@ -215,6 +223,7 @@ async function backfillUser(
         frequency: template.frequency,
         enableReminders: template.enableReminders,
         requireAttachment: template.requireAttachment,
+        sampleImageUrl: template.sampleImageUrl ?? null,
       });
     }
   }
@@ -244,37 +253,23 @@ export const checklistService = {
 
     const { holidayKeys, skipSundays } = await loadCalendarConfig();
 
-    // Only proceed if targetDate is a working day
-    if (!isWorkingDay(today, holidayKeys, skipSundays)) return;
+    // Always backfill a 30-day window so templates added after the initial
+    // setup are caught on the next checklist load. skipDuplicates in
+    // backfillUser makes this safe and idempotent.
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
 
-    // Check if user has any templates
-    const hasTemplates = await prisma.taskTemplate.count({
+    const earliest = await prisma.taskTemplate.findFirst({
       where: { assignedUserId: userId, isActive: true },
-    });
-    if (hasTemplates === 0) return;
-
-    // Check if user has any entries at all → if not, backfill last 90 days
-    const hasEntries = await prisma.checklistEntry.count({
-      where: { assignedUserId: userId },
+      orderBy: { startDate: "asc" },
+      select: { startDate: true },
     });
 
-    let fromDate: Date;
-    if (hasEntries === 0) {
-      // First time: backfill 90 days (or from earliest template start)
-      const earliest = await prisma.taskTemplate.findFirst({
-        where: { assignedUserId: userId, isActive: true },
-        orderBy: { startDate: "asc" },
-        select: { startDate: true },
-      });
-      const ninetyDaysAgo = new Date(today);
-      ninetyDaysAgo.setUTCDate(ninetyDaysAgo.getUTCDate() - 90);
-      fromDate = earliest && earliest.startDate > ninetyDaysAgo
-        ? earliest.startDate
-        : ninetyDaysAgo;
-    } else {
-      // Subsequent calls: only today
-      fromDate = today;
-    }
+    if (!earliest) return;
+
+    const fromDate = earliest.startDate > thirtyDaysAgo
+      ? earliest.startDate
+      : thirtyDaysAgo;
 
     await backfillUser(userId, fromDate, today, holidayKeys, skipSundays);
   },
@@ -297,8 +292,7 @@ export const checklistService = {
   async getEntries(query: ChecklistQueryInput, requesterId: number, requesterRole: string) {
     const { skip, take, page, limit } = getPaginationParams(query);
 
-    const targetDate = query.date ? new Date(query.date) : new Date();
-    targetDate.setUTCHours(0, 0, 0, 0);
+    const targetDate = toUtcDay(query.date ? new Date(query.date) : new Date());
 
     const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
 
@@ -591,5 +585,49 @@ export const checklistService = {
       },
       data: { leaveStatus: true, actualDate: start },
     });
+  },
+
+  async getCalendarSummary(
+    startDate: string,
+    endDate: string,
+    requesterId: number,
+    requesterRole: string,
+    filterUserId?: number
+  ) {
+    const today = toUtcDay(new Date());
+    const userId = requesterRole === "ADMIN" ? filterUserId : requesterId;
+
+    // Materialize tasks so today's entries exist
+    if (userId) {
+      await this.materializeTasks(userId, today);
+    } else if (requesterRole === "ADMIN" && !filterUserId) {
+      const activeUsers = await prisma.user.findMany({
+        where: { status: "ACTIVE" },
+        select: { id: true },
+      });
+      await Promise.all(activeUsers.map((u) => this.materializeTasks(u.id, today)));
+    }
+
+    const where: Prisma.ChecklistEntryWhereInput = {
+      taskStartDate: {
+        gte: new Date(startDate),
+        lte: new Date(endDate),
+      },
+    };
+    if (userId) where.assignedUserId = userId;
+
+    const groups = await prisma.checklistEntry.groupBy({
+      by: ["taskStartDate"],
+      where,
+      _count: { _all: true },
+      orderBy: { taskStartDate: "asc" },
+    });
+
+    const summary: Record<string, number> = {};
+    for (const g of groups) {
+      const key = toUtcDay(new Date(g.taskStartDate)).toISOString().slice(0, 10);
+      summary[key] = (summary[key] ?? 0) + g._count._all;
+    }
+    return summary;
   },
 };

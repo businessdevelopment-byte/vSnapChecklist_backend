@@ -11,6 +11,7 @@ export const createDelegationSchema = z.object({
   frequency: z.enum(["ONE_TIME", "CRITICAL", "URGENT"]),
   enableReminders: z.boolean().default(true),
   requireAttachment: z.boolean().default(false),
+  sampleImageUrl: z.string().url().optional().nullable(),
 });
 
 export const updateDelegationStatusSchema = z.object({
@@ -49,7 +50,14 @@ export const delegationHistoryQuerySchema = z.object({
   search: z.string().optional(),
 });
 
+export const delegationMisQuerySchema = z.object({
+  startDate: z.string().date().optional(),
+  endDate:   z.string().date().optional(),
+  userId:    z.coerce.number().int().positive().optional(),
+});
+
 export type CreateDelegationInput = z.infer<typeof createDelegationSchema>;
 export type SubmitDelegationInput = z.infer<typeof submitDelegationSchema>;
 export type DelegationQueryInput = z.infer<typeof delegationQuerySchema>;
 export type DelegationHistoryQueryInput = z.infer<typeof delegationHistoryQuerySchema>;
+export type DelegationMisQueryInput = z.infer<typeof delegationMisQuerySchema>;
