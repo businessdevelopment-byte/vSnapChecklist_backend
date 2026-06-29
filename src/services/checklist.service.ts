@@ -248,6 +248,10 @@ export const checklistService = {
    * Ensures today (and up to 7 days back) has entries for the user.
    */
   async materializeTasks(userId: number, targetDate: Date): Promise<void> {
+    // Skip task generation for INACTIVE users
+    const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+    if (!userRecord || userRecord.status === "INACTIVE") return;
+
     const today = new Date(targetDate);
     today.setUTCHours(0, 0, 0, 0);
 
@@ -445,6 +449,8 @@ export const checklistService = {
 
     const where: Prisma.ChecklistEntryWhereInput = {
       leaveStatus: false,
+      // Only include entries belonging to ACTIVE users
+      assignedUser: { status: "ACTIVE" },
       ...(departmentId ? { departmentId } : {}),
       taskStartDate:
         startDate && endDate
@@ -504,6 +510,8 @@ export const checklistService = {
       taskStartDate: { gte: startOfYear, lte: endOfYear },
       leaveStatus: false,
       ...(userId ? { assignedUserId: userId } : {}),
+      // When viewing all users, only include entries for ACTIVE users
+      ...(!userId ? { assignedUser: { status: "ACTIVE" } } : {}),
       ...(departmentId ? { departmentId } : {}),
     };
 
