@@ -3,7 +3,8 @@ import path from "path";
 import fs from "fs";
 
 export function createUploadMiddleware(subfolder: string, maxSizeMB = 5) {
-  const uploadDir = path.join(process.cwd(), "uploads", subfolder);
+  const uploadDirBase = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
+  const uploadDir = path.join(uploadDirBase, subfolder);
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
   const storage: StorageEngine = multer.diskStorage({

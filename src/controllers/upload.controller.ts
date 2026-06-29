@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import path from "path";
 import { sendSuccess } from "../utils/apiResponse";
 
 export const uploadController = {
@@ -8,9 +9,13 @@ export const uploadController = {
       return;
     }
     const baseUrl = `${req.protocol}://${req.get("host")}`;
-    const filePath = req.file.path.replace(/\\/g, "/");
-    const relativePath = "/uploads/" + filePath.split("uploads/")[1];
-    const url = `${baseUrl}${relativePath}`;
+
+    const uploadDirBase = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
+    console.log(process.env.UPLOAD_DIR, "this is the testing")
+    const relativePath = path.relative(uploadDirBase, req.file.path).replace(/\\/g, "/");
+    const url = `${baseUrl}/uploads/${relativePath}`;
+
+    console.log(url)
     sendSuccess(res, { url }, "File uploaded successfully");
   },
 };
