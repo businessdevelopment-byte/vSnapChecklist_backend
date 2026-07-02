@@ -9,6 +9,9 @@ import departmentRoutes from "./department.routes";
 import holidayRoutes from "./holiday.routes";
 import systemSettingsRoutes from "./systemSettings.routes";
 import uploadRoutes from "./upload.routes";
+import otpJobRoutes from "./otpJob.routes";
+import otpStageRoutes from "./otpStage.routes";
+import pmsJobRoutes from "./pmsJob.routes";
 
 const router = Router();
 
@@ -22,5 +25,8 @@ router.use("/departments", departmentRoutes);
 router.use("/holidays", holidayRoutes);
 router.use("/system-settings", systemSettingsRoutes);
 router.use("/upload", uploadRoutes);
+router.use("/otp-jobs", otpJobRoutes);
+router.use("/otp-jobs", otpStageRoutes);
+router.use("/pms-jobs", pmsJobRoutes);
 
 export default router;

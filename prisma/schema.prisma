@@ -196,6 +196,100 @@ model TaskTransferLog {
   @@map("task_transfer_logs")
 }
 
+model OtpJob {
+  id                   Int         @id @default(autoincrement())
+  jobId                String      @unique
+  projectId            String      @unique
+  client               String
+  jobGenre             String
+  customIdName         String?
+  customId             String?
+  salesExecutive       String
+  jobDate              DateTime    @db.Date
+  deliveryDate         DateTime    @db.Date
+  jobTime              String
+  pocName              String
+  pocContact           String
+  pocWhatsapp          String?
+  pocEmail             String?
+  poc2ndEmail          String?
+  jobCity              String
+  jobShootAddress      String
+  jobSpecification     String?
+  deliverables         String?
+  packageAmount        Decimal     @db.Decimal(12, 2)
+  operationsCost       Decimal     @db.Decimal(12, 2)
+  taxableAmount        Decimal     @db.Decimal(12, 2)
+  gst                  Decimal     @db.Decimal(12, 2)
+  packageAmountWithTax Decimal     @db.Decimal(12, 2)
+  isTokenReceived      Boolean     @default(false)
+  currentStage         OtpJobStage @default(ORDER_RECEIVED)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  stageEvents          OtpStageEvent[]
+
+  @@index([currentStage])
+  @@index([jobDate])
+  @@map("otp_jobs")
+}
+
+model OtpStageEvent {
+  id        Int         @id @default(autoincrement())
+  otpJobId  Int
+  stage     OtpJobStage
+  data      Json
+  createdAt DateTime    @default(now())
+  otpJob    OtpJob      @relation(fields: [otpJobId], references: [id], onDelete: Cascade)
+
+  @@index([otpJobId])
+  @@index([stage])
+  @@map("otp_stage_events")
+}
+
+model PipelineJob {
+  id               Int                  @id @default(autoincrement())
+  pipelineType     PipelineType
+  jobId            String               @unique
+  projectId        String?
+  client           String
+  jobGenre         String?
+  customIdName     String?
+  customId         String?
+  salesExecutive   String?
+  jobDate          DateTime?            @db.Date
+  deliveryDate     DateTime?            @db.Date
+  jobTime          String?
+  pocName          String?
+  pocContact       String?
+  pocWhatsapp      String?
+  pocEmail         String?
+  poc2ndEmail      String?
+  jobCity          String?
+  jobShootAddress  String?
+  jobSpecification String?
+  deliverables     String?
+  currentStage     String
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  stageEvents      PipelineStageEvent[]
+
+  @@index([pipelineType, currentStage])
+  @@map("pipeline_jobs")
+}
+
+model PipelineStageEvent {
+  id            Int         @id @default(autoincrement())
+  pipelineJobId Int
+  stage         String
+  data          Json
+  createdAt     DateTime    @default(now())
+  pipelineJob   PipelineJob @relation(fields: [pipelineJobId], references: [id], onDelete: Cascade)
+
+  @@index([pipelineJobId])
+  @@index([stage])
+  @@map("pipeline_stage_events")
+}
+
 model SystemSettings {
   id          Int     @id @default(1)
   skipSundays Boolean @default(true)
@@ -271,4 +365,26 @@ enum CompletionStatus {
 enum HistoryStatus {
   DONE
   EXTEND_DATE
+}
+
+enum OtpJobStage {
+  ORDER_RECEIVED
+  ASSIGN_MEMBER
+  RE_CONFIRMATION
+  PHOTOGRAPHER_ALLOTMENT
+  PHOTOGRAPHER_SEARCH
+  FINAL_PHOTOGRAPHER
+  PHOTOGRAPHER_BRIEFING
+  MAKE_TOKEN
+  STORY_BRIEFING
+  MOODBOARD_CREATION
+  CLIENT_BRIEFING_BEFORE_SHOOT
+  PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT
+  MOODBOARD_DELIVERY_TO_CLIENT
+  COMPLETED
+}
+
+enum PipelineType {
+  PMS
+  POLITICAL
 }

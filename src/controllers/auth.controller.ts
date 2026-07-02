@@ -10,6 +10,7 @@ export const authController = {
       const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
         ?? req.socket.remoteAddress
         ?? undefined;
+
       const result = await authService.login(input, ip);
       sendSuccess(res, result, "Login successful");
     } catch (err: unknown) {

@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "OtpJobStage" ADD VALUE 'COMPLETED';

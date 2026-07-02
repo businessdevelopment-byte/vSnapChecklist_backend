@@ -20,8 +20,12 @@ function flatten(u: any) {
 }
 
 export const userService = {
-  async getAll() {
-    const users = await prisma.user.findMany({ orderBy: { username: "asc" }, select: USER_SELECT });
+  async getAll(statusFilter?: "ACTIVE" | "INACTIVE") {
+    const users = await prisma.user.findMany({
+      orderBy: { username: "asc" },
+      select: USER_SELECT,
+      ...(statusFilter ? { where: { status: statusFilter } } : {}),
+    });
     return users.map(flatten);
   },
 

@@ -4,9 +4,11 @@ import { sendSuccess, sendError } from "../utils/apiResponse";
 import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema } from "../schemas/user.schemas";
 
 export const userController = {
-  async getAll(_req: Request, res: Response): Promise<void> {
+  async getAll(req: Request, res: Response): Promise<void> {
     try {
-      const users = await userService.getAll();
+      const { status } = req.query as { status?: string };
+      const validStatus = status === "ACTIVE" || status === "INACTIVE" ? status : undefined;
+      const users = await userService.getAll(validStatus);
       sendSuccess(res, users, "Users fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
