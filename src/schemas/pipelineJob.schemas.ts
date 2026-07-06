@@ -29,3 +29,18 @@ export const createPmsJobSchema = z.object({
 });
 
 export type CreatePmsJobInput = z.infer<typeof createPmsJobSchema>;
+
+export const createPoliticalJobSchema = z.object({
+  projectName: z.string().min(1, "Project name is required"),
+  projectId: z.string().optional(),
+  type: z.string().optional(),
+  voiceover: z.string().optional(),
+  ideaDetails: z.string().optional(),
+  attachmentLink: z.string().optional(),
+  editorName: z.string().optional(),
+  voiceoverPersonName: z.string().optional(),
+  projectCoordinatorName: z.string().optional(),
+  pcEmail: z.string().email("Invalid email address").optional().or(z.literal("")),
+});
+
+export type CreatePoliticalJobInput = z.infer<typeof createPoliticalJobSchema>;

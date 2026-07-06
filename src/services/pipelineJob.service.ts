@@ -1,6 +1,6 @@
 import { Prisma, PipelineType } from "@prisma/client";
 import { prisma } from "../config/database";
-import type { CreatePmsJobInput } from "../schemas/pipelineJob.schemas";
+import type { CreatePmsJobInput, CreatePoliticalJobInput } from "../schemas/pipelineJob.schemas";
 
 // Sales Team is PMS's own intake stage (it has a real form, unlike OTP's
 // read-only Order Received) — creating a job places it directly into
@@ -19,6 +19,27 @@ export const pipelineJobService = {
         jobDate: input.jobDate ? new Date(input.jobDate) : undefined,
         deliveryDate: input.deliveryDate ? new Date(input.deliveryDate) : undefined,
         currentStage: "SALES_TEAM",
+      } satisfies Prisma.PipelineJobUncheckedCreateInput,
+    });
+  },
+
+  // Job Cards is Political's own intake stage, same pattern as PMS's Sales
+  // Team. Political has no "client" concept in the source (it tracks content
+  // projects, not client jobs) — `client` is set to `projectName`'s value so
+  // every pipelineType still has one consistent "what is this row" display
+  // field, satisfying the column's NOT NULL constraint without inventing a
+  // new business concept — see docs/migration/DECISIONS.md.
+  async createPoliticalJob(input: CreatePoliticalJobInput) {
+    const sequence = (await prisma.pipelineJob.count({ where: { pipelineType: PipelineType.POLITICAL } })) + 1;
+    const jobId = `JCD-${String(sequence).padStart(5, "0")}`;
+
+    return prisma.pipelineJob.create({
+      data: {
+        ...input,
+        pipelineType: PipelineType.POLITICAL,
+        jobId,
+        client: input.projectName,
+        currentStage: "JOB_CARDS",
       } satisfies Prisma.PipelineJobUncheckedCreateInput,
     });
   },

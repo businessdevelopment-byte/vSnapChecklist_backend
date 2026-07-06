@@ -6,6 +6,15 @@ datasource db {
   provider = "postgresql"
 }
 
+// `employeeId` links a login account to its HR roster record (Module #53
+// decision) — nullable, since not every User (e.g. admin-only accounts) has
+// a corresponding Employee, and unique, so a given Employee can be "me" for
+// at most one User account. Resolved server-side for self-service HR pages
+// (My Attendance now; My Salary #55 and My Profile #56 will reuse this same
+// field) via req.user.userId -> employeeId -> Employee — never trust a
+// client-supplied employeeId for "my own data" reads. Linking itself is an
+// admin action (PATCH /api/users/:id/employee, mirroring the existing
+// updateDepartment endpoint's shape) — see docs/migration/DECISIONS.md.
 model User {
   id                Int                 @id @default(autoincrement())
   username          String              @unique
@@ -14,6 +23,7 @@ model User {
   role              Role                @default(USER)
   status            UserStatus          @default(ACTIVE)
   departmentId      Int?
+  employeeId        Int?                @unique
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   attendanceLogs    AttendanceLog[]
@@ -27,6 +37,7 @@ model User {
   transferredBy     TaskTransferLog[]   @relation("TransferBy")
   departments       UserDepartment[]
   department        Department?         @relation(fields: [departmentId], references: [id])
+  employee          Employee?           @relation(fields: [employeeId], references: [id])
 
   @@index([username])
   @@index([departmentId])
@@ -197,16 +208,18 @@ model TaskTransferLog {
 }
 
 model OtpJob {
-  id                   Int         @id @default(autoincrement())
-  jobId                String      @unique
-  projectId            String      @unique
+  id                   Int             @id @default(autoincrement())
+  jobId                String          @unique
+  // Not @unique: one project can have multiple jobs (e.g. repeat bookings
+  // under the same vsnapu project id) — only jobId is guaranteed unique.
+  projectId            String
   client               String
   jobGenre             String
   customIdName         String?
   customId             String?
   salesExecutive       String
-  jobDate              DateTime    @db.Date
-  deliveryDate         DateTime    @db.Date
+  jobDate              DateTime        @db.Date
+  deliveryDate         DateTime        @db.Date
   jobTime              String
   pocName              String
   pocContact           String
@@ -217,19 +230,20 @@ model OtpJob {
   jobShootAddress      String
   jobSpecification     String?
   deliverables         String?
-  packageAmount        Decimal     @db.Decimal(12, 2)
-  operationsCost       Decimal     @db.Decimal(12, 2)
-  taxableAmount        Decimal     @db.Decimal(12, 2)
-  gst                  Decimal     @db.Decimal(12, 2)
-  packageAmountWithTax Decimal     @db.Decimal(12, 2)
-  isTokenReceived      Boolean     @default(false)
-  currentStage         OtpJobStage @default(ORDER_RECEIVED)
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  packageAmount        Decimal         @db.Decimal(12, 2)
+  operationsCost       Decimal         @db.Decimal(12, 2)
+  taxableAmount        Decimal         @db.Decimal(12, 2)
+  gst                  Decimal         @db.Decimal(12, 2)
+  packageAmountWithTax Decimal         @db.Decimal(12, 2)
+  isTokenReceived      Boolean         @default(false)
+  currentStage         OtpJobStage     @default(ORDER_RECEIVED)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
   stageEvents          OtpStageEvent[]
 
   @@index([currentStage])
   @@index([jobDate])
+  @@index([projectId])
   @@map("otp_jobs")
 }
 
@@ -247,31 +261,44 @@ model OtpStageEvent {
 }
 
 model PipelineJob {
-  id               Int                  @id @default(autoincrement())
-  pipelineType     PipelineType
-  jobId            String               @unique
-  projectId        String?
-  client           String
-  jobGenre         String?
-  customIdName     String?
-  customId         String?
-  salesExecutive   String?
-  jobDate          DateTime?            @db.Date
-  deliveryDate     DateTime?            @db.Date
-  jobTime          String?
-  pocName          String?
-  pocContact       String?
-  pocWhatsapp      String?
-  pocEmail         String?
-  poc2ndEmail      String?
-  jobCity          String?
-  jobShootAddress  String?
-  jobSpecification String?
-  deliverables     String?
-  currentStage     String
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  stageEvents      PipelineStageEvent[]
+  id                     Int                  @id @default(autoincrement())
+  pipelineType           PipelineType
+  jobId                  String               @unique
+  projectId              String?
+  client                 String
+  jobGenre               String?
+  customIdName           String?
+  customId               String?
+  salesExecutive         String?
+  jobDate                DateTime?            @db.Date
+  deliveryDate           DateTime?            @db.Date
+  jobTime                String?
+  pocName                String?
+  pocContact             String?
+  pocWhatsapp            String?
+  pocEmail               String?
+  poc2ndEmail            String?
+  jobCity                String?
+  jobShootAddress        String?
+  jobSpecification       String?
+  deliverables           String?
+  // Political (Job Cards) identity fields — nullable, unused by OTP/PMS.
+  // `client` still holds this record's display name for Political too (set to
+  // `projectName`'s value on create) so every pipelineType has one consistent
+  // "what is this row" field — see docs/migration/DECISIONS.md.
+  projectName            String?
+  type                   String?
+  voiceover              String?
+  ideaDetails            String?
+  attachmentLink         String?
+  editorName             String?
+  voiceoverPersonName    String?
+  projectCoordinatorName String?
+  pcEmail                String?
+  currentStage           String
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  stageEvents            PipelineStageEvent[]
 
   @@index([pipelineType, currentStage])
   @@map("pipeline_jobs")
@@ -288,6 +315,432 @@ model PipelineStageEvent {
   @@index([pipelineJobId])
   @@index([stage])
   @@map("pipeline_stage_events")
+}
+
+// HR employee master roster (Module #42). Source (Master/src/pages/HR/Employee.jsx)
+// has no creation form — only a read-only "joining" listing backed by mock data
+// (`EMPLOYEES` in hrDummyData.js) — so `create()` is new functionality, per the
+// same precedent as Order Received/Sales Team/Job Cards. `companyName` is kept
+// as a plain field (not linked to the existing `Department` model) since it's
+// not confirmed to be the same concept — see docs/migration/DECISIONS.md.
+// Employee.jsx's own "leaving" tab and the separate `Leaving` page's mark-as-left
+// workflow (Module #47) are deferred; no leaving-specific columns exist yet.
+model Employee {
+  id                  Int                  @id @default(autoincrement())
+  joiningNo           String               @unique
+  candidateName       String
+  fatherName          String?
+  dateOfJoining       DateTime             @db.Date
+  joiningPlace        String?
+  designation         String
+  salary              Decimal              @db.Decimal(12, 2)
+  mobileNo            String
+  familyMobileNo      String?
+  relationWithFamily  String?
+  email               String?
+  companyName         String?
+  status              String               @default("Active")
+  gender              String?
+  aadharNo            String?
+  currentAddress      String?
+  addressAsPerAadhar  String?
+  bodAsPerAadhar      DateTime?            @db.Date
+  pfEligible          String?
+  esicEligible        String?
+  accountNo           String?
+  ifscCode            String?
+  branchName          String?
+  paymentMode         String?
+  modeOfAttendance    String?
+  qualification       String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  onboardingChecklist OnboardingChecklist?
+  leavingRecord       LeavingRecord?
+  leaveRequests       LeaveRequest[]
+  monthlyAttendance   MonthlyAttendance[]
+  dailyAttendance     DailyAttendance[]
+  linkedUser          User?
+  payrollEntries      PayrollEntry[]
+
+  @@index([status])
+  @@map("employees")
+}
+
+// HR onboarding checklist (Module #46). Source (Master/src/pages/HR/
+// AfterJoiningWork.jsx) has a fixed 8-item checklist (not user-configurable)
+// applied to a new employee. Its own "Pending" list is `EMPLOYEES.filter(e =>
+// e.status === 'Active')` re-evaluated fresh on every load with no persisted
+// completion flag — meaning in the source itself, a completed employee would
+// reappear in Pending after a page refresh (the "done" list is local
+// component state only, discarded on reload). This migration fixes that by
+// persisting completion as a real `OnboardingChecklist` row (`employeeId`
+// unique — one checklist per employee) rather than relying on `Employee`'s
+// own `status` field (which already means Active/Left, a different concept)
+// — see docs/migration/DECISIONS.md.
+model OnboardingChecklist {
+  id                    Int      @id @default(autoincrement())
+  employeeId            Int      @unique
+  checkSalarySlipResume Boolean  @default(false)
+  offerLetterReceived   Boolean  @default(false)
+  welcomeMeeting        Boolean  @default(false)
+  biometricAccess       Boolean  @default(false)
+  officialEmailId       Boolean  @default(false)
+  assignAssets          Boolean  @default(false)
+  pfEsic                Boolean  @default(false)
+  companyDirectory      Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  employee              Employee @relation(fields: [employeeId], references: [id])
+
+  @@map("onboarding_checklists")
+}
+
+// HR leaving record (Module #47). Source (Master/src/pages/HR/Leaving.jsx)
+// has a "Mark Leaving" form (dateOfLeaving, mobileNumber, reasonOfLeaving)
+// over the same `EMPLOYEES.filter(e => e.status === 'Active')` Pending list
+// as AfterJoiningWork — but never actually updates `status`, so (mirroring
+// Module #46's bug) a left employee would keep reappearing as Active/Pending
+// forever in the source. This migration fixes that the same way Module #46
+// did: `employeeId` is unique (one leaving record per employee), and
+// `leavingRecordService.create` sets `Employee.status = "Left"` in the same
+// transaction — finally giving that pre-existing field (added in Module #42,
+// always defaulted to "Active", never previously changed) a real purpose.
+// Source's `plannedDate`/`actual` fields are always identical to
+// `dateOfLeaving` (never independently set) and never rendered anywhere —
+// dead duplicate data, not ported; see docs/migration/DECISIONS.md.
+model LeavingRecord {
+  id                   Int                   @id @default(autoincrement())
+  employeeId           Int                   @unique
+  dateOfLeaving        DateTime              @db.Date
+  mobileNumber         String?
+  reasonOfLeaving      String
+  createdAt            DateTime              @default(now())
+  employee             Employee              @relation(fields: [employeeId], references: [id])
+  offboardingChecklist OffboardingChecklist?
+
+  @@map("leaving_records")
+}
+
+// HR offboarding checklist (Module #48). Source (Master/src/pages/HR/
+// AfterLeavingWork.jsx) has a fixed 8-item checklist (task set is different
+// from Module #46's onboarding checklist) plus a `finalReleaseDate` field,
+// applied over `LEAVING_EMPLOYEES` unconditionally — the source has no
+// Pending/History tab split at all here (unlike AfterJoiningWork.jsx), and
+// `handleSubmit` only removes the employee from local `pending` state with
+// no persisted "done" record whatsoever — not even the ephemeral local
+// `done` array Module #46's source had. This migration fixes that the same
+// way #46/#47 did: a real, persisted record (`leavingRecordId` unique — one
+// checklist per leaving record) plus an added History view, consistent with
+// every other Pending/History module built in this migration; see
+// docs/migration/DECISIONS.md. `finalReleaseDate` is optional — the source's
+// own "Mark Complete" button has no `disabled` guard on it at all, unlike
+// Leaving.jsx's form, so nothing in the source requires it to be filled in.
+model OffboardingChecklist {
+  id                        Int           @id @default(autoincrement())
+  leavingRecordId           Int           @unique
+  resignationLetterReceived Boolean       @default(false)
+  resignationAcceptance     Boolean       @default(false)
+  handoverOfAssets          Boolean       @default(false)
+  idCard                    Boolean       @default(false)
+  visitingCard              Boolean       @default(false)
+  cancellationOfEmailId     Boolean       @default(false)
+  biometricAccess           Boolean       @default(false)
+  removeBenefitEnrollment   Boolean       @default(false)
+  finalReleaseDate          DateTime?     @db.Date
+  createdAt                 DateTime      @default(now())
+  leavingRecord             LeavingRecord @relation(fields: [leavingRecordId], references: [id])
+
+  @@map("offboarding_checklists")
+}
+
+// HR self-service leave request (Module #49). Source (Master/src/pages/HR/
+// LeaveRequest.jsx) hardcodes its own view to a single demo employee
+// ("EMP001") via an explicit `// Show EMP001's leaves for demo` comment —
+// there is no real session-to-employee identity link anywhere in Master, and
+// none exists yet in this backend either (`User` and `Employee` are wholly
+// separate models with no FK between them). Rather than silently inventing a
+// `User.employeeId` linkage (an architecture decision affecting 3 more
+// upcoming self-service modules: My Attendance #53, My Salary #55, My
+// Profile #56) or hardcoding one specific employee into production code,
+// this migration ports the real business logic (leave types, balance math,
+// inclusive day-count formula, create form) scoped by an explicit
+// `employeeId`, the same way every other HR module in this migration is
+// scoped — see docs/migration/DECISIONS.md for the full reasoning and the
+// deferred session-identity question.
+model LeaveRequest {
+  id         Int      @id @default(autoincrement())
+  serialNo   String   @unique
+  employeeId Int
+  leaveType  String
+  fromDate   DateTime @db.Date
+  toDate     DateTime @db.Date
+  days       Int
+  reason     String
+  status     String   @default("Pending")
+  createdAt  DateTime @default(now())
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@map("leave_requests")
+}
+
+// HR monthly attendance summary (Module #51). Source (Master/src/pages/HR/
+// Attendance.jsx) reads a flat, pre-computed `ATTENDANCE_MONTHLY` array — a
+// separate, independently hand-authored mock dataset from `ATTENDANCE_DAILY`
+// (Module #52's source), not something Attendance.jsx itself derives via any
+// aggregation formula. Investigated whether monthly summaries should instead
+// be a live aggregation over a future daily-punch model (mirroring how
+// MyAttendance.jsx, Module #53, does compute its own stats from daily
+// records) — rejected for this module specifically, because two of the
+// mock's own fields (`lateNotAllowed`/`lateAllowed`) reflect an unstated
+// late-arrival policy split with no derivable formula anywhere in the source;
+// fabricating one would be inventing a business rule. `MonthlyAttendance` is
+// therefore its own standalone model, matching the source's own flat table
+// shape exactly, unique per employee per month — see
+// docs/migration/DECISIONS.md. Read-only in the source (no creation form
+// anywhere in Master for any attendance data — it's implicitly
+// externally-supplied, e.g. by a biometric system, which is out of this
+// migration's scope); a create endpoint still exists here only for the
+// eventual real data-ingestion path, matching this backend's own
+// Controller→Service→Prisma convention for every other model.
+model MonthlyAttendance {
+  id             Int      @id @default(autoincrement())
+  employeeId     Int
+  year           Int
+  month          String
+  punchDays      Int
+  totalOnTime    Int
+  lateDays       Int
+  lateNotAllowed Int
+  lateAllowed    Int
+  punchMiss      Int
+  holidays       Int
+  absents        Int
+  totalWorking   Int
+  mgmtAdjustment Int      @default(0)
+  grandTotalDays Int
+  createdAt      DateTime @default(now())
+  employee       Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, year, month])
+  @@map("monthly_attendance")
+}
+
+// HR daily attendance log (Module #52). Source (Master/src/pages/HR/
+// AttendanceDaily.jsx) is a flat, read-only punch log — search + start/end
+// date range filter over `ATTENDANCE_DAILY`, plus a non-functional "Download"
+// button (no `onClick` anywhere, same finding as Module #51's "Download
+// Excel" — not ported, see docs/migration/DECISIONS.md). Confirmed
+// independent of `MonthlyAttendance` (#51) during that module's own combined
+// Observe pass — the two source datasets don't derive from one another in
+// `Master`; see the Module #51 decision on this. `companyName`/`name`/
+// `designation` from the source's own denormalized row shape are not
+// persisted here as separate columns — all three are already reachable via
+// the `employee` relation, matching the same reasoning already applied to
+// `MonthlyAttendance` skipping its own `company` field. `day` (day of week)
+// is kept as its own literal field rather than derived from `date` at read
+// time, matching the source's own denormalized shape. No creation form in
+// source (attendance data is implicitly externally-supplied) — same as #51.
+model DailyAttendance {
+  id            Int      @id @default(autoincrement())
+  employeeId    Int
+  year          Int
+  month         String
+  date          DateTime @db.Date
+  day           String
+  holiday       String
+  workingDay    String
+  nHoliday      String
+  status        String
+  inTime        String?
+  outTime       String?
+  workingHours  String
+  lateMinutes   Int      @default(0)
+  earlyOut      Int      @default(0)
+  overtimeHours String
+  punchMiss     String
+  remarks       String?
+  createdAt     DateTime @default(now())
+  employee      Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, date])
+  @@map("daily_attendance")
+}
+
+// HR payroll (Module #54, admin). Source (Master/src/pages/HR/Payroll.jsx)
+// has a real "New Payroll Entry" create form — ported as-is, not a new
+// addition. `gross`/`totalDeductions`/`netSalary` are computed server-side
+// from the exact formula found in the source (Payroll.jsx:24-26):
+// gross = basicSalary + lta + bonus + otherAllowances + overtime;
+// totalDeductions = pf + loan + otherDeductions; netSalary = gross -
+// totalDeductions. Unique per employee+year+month, matching the same
+// monthly-scoped-record precedent as `MonthlyAttendance` (#51). Source's own
+// "Export" and "Download Payslip" buttons have no `onClick` handler
+// anywhere — non-functional, not ported, matching the Attendance modules'
+// (#51/#52) established precedent; see docs/migration/DECISIONS.md.
+model PayrollEntry {
+  id              Int       @id @default(autoincrement())
+  employeeId      Int
+  year            String
+  month           String
+  basicSalary     Decimal   @db.Decimal(12, 2)
+  lta             Decimal   @default(0) @db.Decimal(12, 2)
+  bonus           Decimal   @default(0) @db.Decimal(12, 2)
+  otherAllowances Decimal   @default(0) @db.Decimal(12, 2)
+  overtime        Decimal   @default(0) @db.Decimal(12, 2)
+  gross           Decimal   @db.Decimal(12, 2)
+  pf              Decimal   @default(0) @db.Decimal(12, 2)
+  loan            Decimal   @default(0) @db.Decimal(12, 2)
+  otherDeductions Decimal   @default(0) @db.Decimal(12, 2)
+  totalDeductions Decimal   @db.Decimal(12, 2)
+  netSalary       Decimal   @db.Decimal(12, 2)
+  status          String    @default("Pending")
+  payDate         DateTime? @db.Date
+  createdAt       DateTime  @default(now())
+  employee        Employee  @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, year, month])
+  @@map("payroll_entries")
+}
+
+// HR MIS work-tracking report (Module #57). Source (Master/src/pages/HR/
+// MisReport.jsx) reads a flat `MIS_REPORT_DATA` array — unlike every other
+// HR module built so far, its rows carry a plain `name`/`department` string
+// pair with no employee code/ID field anywhere (`hrDummyData.js`'s own rows
+// have no `employeeId`/`joiningNo`), so there's no evidenced FK relationship
+// to `Employee` to port — inventing one would be assuming a link the source
+// never establishes. `department` is likewise a plain string, not linked to
+// the existing `Department` model, for the same reason `Employee.companyName`
+// wasn't linked to it either (Module #42's still-open question) — see
+// docs/migration/DECISIONS.md. Read-only in source (search + a non-functional
+// "Export" button, no `onClick` — not ported, matching the Attendance/Payroll
+// modules' established precedent); a `POST` endpoint exists on the backend
+// only for eventual real data-ingestion, same as #51/#52.
+model MisReportEntry {
+  id             Int      @id @default(autoincrement())
+  name           String
+  department     String
+  dateStart      DateTime @db.Date
+  dateEnd        DateTime @db.Date
+  target         Int
+  actualWorkDone Int
+  workDone       Int
+  workDoneOnTime Int
+  totalWorkDone  Int
+  weekPending    Int
+  createdAt      DateTime @default(now())
+
+  @@map("mis_report_entries")
+}
+
+// HR company events calendar (Module #59, last HR module). Source
+// (Master/src/pages/HR/CompanyCalendar.jsx) is a month-grid calendar of
+// company events (meetings, holidays, trainings, reviews, general events)
+// read from `COMPANY_CALENDAR_EVENTS` — genuinely distinct from this app's
+// existing `Holiday` model (which only excludes dates from checklist task
+// generation, no title/type/time/location/description) and from the
+// existing checklist/delegation calendar feature (which shows task due
+// dates, not company events) — confirmed no reuse opportunity, see
+// docs/migration/DECISIONS.md. Unlike Attendance/MIS Report's
+// externally-supplied read-only data, company events are realistically
+// hand-entered by an HR admin with no external data source, so — mirroring
+// the Order Received/Employee precedent — this migration adds a real
+// "Add Event" creation form even though the source has none.
+model CompanyCalendarEvent {
+  id          Int      @id @default(autoincrement())
+  title       String
+  date        DateTime @db.Date
+  time        String?
+  location    String?
+  type        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  @@map("company_calendar_events")
+}
+
+// HR hiring requisition (Module #43). Unlike Employee, source
+// (Master/src/pages/HR/Indent.jsx) already has a real "Create Indent" form —
+// ported as-is, not a new addition. `status` always starts "Open" on create;
+// there is no "close"/status-change action anywhere in the source.
+model Indent {
+  id             Int       @id @default(autoincrement())
+  indentNumber   String    @unique
+  post           String
+  gender         String    @default("Male")
+  prefer         String    @default("Fresher")
+  noOfPost       Int
+  completionDate DateTime  @db.Date
+  socialSite     String    @default("LinkedIn")
+  status         String    @default("Open")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  enquiries      Enquiry[]
+
+  @@index([status])
+  @@map("indents")
+}
+
+// HR candidate enquiry (Module #44). Source (Master/src/pages/HR/FindEnquiry.jsx)
+// has a real "Add Enquiry" form, only reachable from an Open Indent's own
+// "Pending" row — so `indentId` is a real FK (not just a copied string), while
+// `indentNo`/`applyingForPost` are still denormalized snapshot fields, exactly
+// matching the source object literal (`indentNo: selectedIndent.indentNumber,
+// applyingForPost: selectedIndent.post`). `status` is set by the recruiter at
+// creation time via a dropdown (Pending/Shortlisted/Selected/Rejected) — not a
+// stage that advances on its own. The `FOLLOW_UPS` mock data and its own
+// Interested/Joined/Not Interested status belong to the separate Call Tracker
+// page (Module #45), not here — confirmed by reading both source files.
+model Enquiry {
+  id                 Int        @id @default(autoincrement())
+  candidateEnquiryNo String     @unique
+  indentId           Int
+  indentNo           String
+  applyingForPost    String
+  candidateName      String
+  candidateDOB       DateTime?  @db.Date
+  candidatePhone     String
+  candidateEmail     String?
+  previousCompany    String?
+  jobExperience      String?
+  previousPosition   String?
+  maritalStatus      String     @default("Single")
+  presentAddress     String?
+  aadharNo           String?
+  status             String     @default("Pending")
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  indent             Indent     @relation(fields: [indentId], references: [id])
+  followUps          FollowUp[]
+
+  @@index([status])
+  @@index([indentId])
+  @@map("enquiries")
+}
+
+// HR call-log entry (Module #45). Source (Master/src/pages/HR/CallTracker.jsx)
+// has no "pending" concept at all — its own "Pending" tab lists every Enquiry
+// unconditionally (always callable again, no state change on the enquiry
+// itself), while "History" is a pure, ever-growing append-only log of calls
+// made. `FollowUp.status` (Interested/Not Interested/Joined/Call Back Later)
+// is a completely separate concept from `Enquiry.status`
+// (Pending/Shortlisted/Selected/Rejected) — the source's own handleSubmit
+// never touches the enquiry record, only appends to the follow-up log, so
+// this migration doesn't sync them either. `nextDate` is only ever populated
+// when `status` is "Call Back Later" (the source only shows that input
+// conditionally) — kept nullable rather than required.
+model FollowUp {
+  id            Int       @id @default(autoincrement())
+  enquiryId     Int
+  enquiryNo     String
+  status        String    @default("Interested")
+  candidateSays String
+  nextDate      DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+  enquiry       Enquiry   @relation(fields: [enquiryId], references: [id])
+
+  @@index([enquiryId])
+  @@map("follow_ups")
 }
 
 model SystemSettings {

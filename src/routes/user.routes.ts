@@ -14,6 +14,7 @@ router.post("/import", userController.importMany);
 router.patch("/:id/status", userController.updateStatus);
 router.patch("/:id/role", userController.updateRole);
 router.patch("/:id/department", userController.updateDepartment);
+router.patch("/:id/employee", userController.updateEmployeeLink);
 router.patch("/:id/departments", userController.updateDepartments);
 
 export default router;
