@@ -1,8 +1,6 @@
 import { z } from "zod";
 
-// Ordered sequence of the 13 OTP stages. `advanceStage` always moves a job
-// from its current stage to the next entry in this array — the pipeline is
-// linear (unlike PMS/Political, no branching exists in the source).
+// Ordered sequence of the 13 OTP stages, used for stage-param validation.
 // COMPLETED is the true terminal marker — completing the last real stage
 // (MOODBOARD_DELIVERY_TO_CLIENT) moves a job here instead of failing with
 // "no next stage." No page ever queries pending-at-COMPLETED, so completed
@@ -25,11 +23,6 @@ export const OTP_STAGE_ORDER = [
 ] as const;
 
 export type OtpStageName = (typeof OTP_STAGE_ORDER)[number];
-
-export function nextOtpStage(stage: OtpStageName): OtpStageName | null {
-  const idx = OTP_STAGE_ORDER.indexOf(stage);
-  return idx >= 0 && idx < OTP_STAGE_ORDER.length - 1 ? OTP_STAGE_ORDER[idx + 1] : null;
-}
 
 const yesNo = (def: "Yes" | "No") => z.enum(["Yes", "No"]).default(def);
 
@@ -175,6 +168,29 @@ export const otpStageSchemas: Record<OtpStageName, z.ZodTypeAny> = {
   PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: photographerBriefingBeforeShootSchema,
   MOODBOARD_DELIVERY_TO_CLIENT: moodboardDeliveryToClientSchema,
   COMPLETED: z.object({}), // terminal — advanceStage never validates against this, nothing moves past it
+};
+
+// Every stage's next-stage rule, keyed the same way as otpStageSchemas —
+// mirrors PMS's pmsStageTransitions (pmsStage.schemas.ts). Most stages are
+// unconditional; PHOTOGRAPHER_ALLOTMENT branches on whether staff already
+// have a photographer (skip straight to Final Photographer) or need one
+// found (go to Photographer Search first).
+export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unknown>) => OtpStageName | null> = {
+  ORDER_RECEIVED: () => "ASSIGN_MEMBER",
+  ASSIGN_MEMBER: () => "RE_CONFIRMATION",
+  RE_CONFIRMATION: () => "PHOTOGRAPHER_ALLOTMENT",
+  PHOTOGRAPHER_ALLOTMENT: (data) =>
+    data.photographerAvailable === "Yes" ? "FINAL_PHOTOGRAPHER" : "PHOTOGRAPHER_SEARCH",
+  PHOTOGRAPHER_SEARCH: () => "FINAL_PHOTOGRAPHER",
+  FINAL_PHOTOGRAPHER: () => "PHOTOGRAPHER_BRIEFING",
+  PHOTOGRAPHER_BRIEFING: () => "MAKE_TOKEN",
+  MAKE_TOKEN: () => "STORY_BRIEFING",
+  STORY_BRIEFING: () => "MOODBOARD_CREATION",
+  MOODBOARD_CREATION: () => "CLIENT_BRIEFING_BEFORE_SHOOT",
+  CLIENT_BRIEFING_BEFORE_SHOOT: () => "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT",
+  PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: () => "MOODBOARD_DELIVERY_TO_CLIENT",
+  MOODBOARD_DELIVERY_TO_CLIENT: () => "COMPLETED",
+  COMPLETED: () => null,
 };
 
 export const stageListQuerySchema = z.object({

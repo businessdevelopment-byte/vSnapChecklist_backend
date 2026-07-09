@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
-import { otpStageSchemas, nextOtpStage, type OtpStageName } from "../schemas/otpStage.schemas";
+import { otpStageSchemas, otpStageTransitions, type OtpStageName } from "../schemas/otpStage.schemas";
 import type { StageListQueryInput } from "../schemas/otpStage.schemas";
 
 export const otpStageService = {
@@ -70,7 +70,7 @@ export const otpStageService = {
     const schema = otpStageSchemas[currentStage];
     const parsed = schema.parse(rawData);
 
-    const next = nextOtpStage(currentStage);
+    const next = otpStageTransitions[currentStage](parsed);
     if (!next) {
       throw Object.assign(new Error("This order has already completed the final stage"), { status: 400 });
     }
