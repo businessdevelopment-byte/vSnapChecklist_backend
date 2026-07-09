@@ -1,6 +1,7 @@
 import { prisma } from "../config/database";
 import { env } from "../config/env";
 import { otpJobService } from "./otpJob.service";
+import { otpStageService } from "./otpStage.service";
 import { parseArrayLenient } from "../utils/externalApi";
 import { externalOpsAllotmentSchema, type ExternalOpsAllotment } from "../schemas/opsAllotment.schemas";
 
@@ -55,19 +56,30 @@ export const opsAllotmentService = {
       backfilled = result.imported;
     }
 
-    // Matching + advancing to the next stage is a manual, per-row action from
-    // here on (the "Process" button on Assign Member's Assigned tab) — this
-    // sync only guarantees every allotted job actually exists locally so the
-    // frontend's jobId join has something to match against. It never calls
-    // advanceStage itself.
-    const matched = await prisma.otpJob.count({
+    // vsnapu naming a member is itself the trigger to advance — every job
+    // still waiting at ASSIGN_MEMBER that this sync matched to an allotment
+    // gets its member recorded and advances automatically. No manual
+    // per-row action exists on the frontend for this anymore.
+    const assignable = await prisma.otpJob.findMany({
       where: { jobId: { in: [...latestByJobId.keys()] }, currentStage: "ASSIGN_MEMBER" },
+      select: { id: true, jobId: true },
     });
+
+    for (const job of assignable) {
+      const allotment = latestByJobId.get(job.jobId)!;
+      await otpStageService.advanceStage(job.id, {
+        assignedMember: allotment.stakeholderName.trim(),
+        remarks: allotment.allottedByUserName?.trim()
+          ? `Assigned by ${allotment.allottedByUserName.trim()} via vsnapu`
+          : "Assigned via vsnapu",
+      });
+    }
 
     return {
       fetched: allotments.length,
-      matched,
+      matched: assignable.length,
       backfilled,
+      assigned: assignable.length,
     };
   },
 };
