@@ -34,9 +34,12 @@ export function nextOtpStage(stage: OtpStageName): OtpStageName | null {
 const yesNo = (def: "Yes" | "No") => z.enum(["Yes", "No"]).default(def);
 
 const assignMemberSchema = z.object({
-  assignedMember: z.string().min(1, "Member is required"),
-  assignedEmail: z.string().optional(),
-  assignedPhone: z.string().optional(),
+  assignedMember: z.string().optional(),
+  venue: z.string().optional(),
+  confirmedDate: z.string().optional(),
+  confirmationStatus: yesNo("No"),
+  moodboardRequired: yesNo("No"),
+  manualInterferenceRequired: yesNo("No"),
   remarks: z.string().optional(),
 });
 
@@ -45,6 +48,7 @@ const reConfirmationSchema = z.object({
   confirmedDate: z.string().optional(),
   confirmationStatus: yesNo("No"),
   moodboardRequired: yesNo("No"),
+  manualInterferenceRequired: yesNo("No"),
   remarks: z.string().optional(),
 });
 

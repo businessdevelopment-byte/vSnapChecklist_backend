@@ -219,7 +219,9 @@ model OtpJob {
   customId             String?
   salesExecutive       String
   jobDate              DateTime        @db.Date
-  deliveryDate         DateTime        @db.Date
+  // Nullable: the vsnapu source frequently has no delivery date set yet at
+  // job-creation time (62% of a sampled range) — not an edge case.
+  deliveryDate         DateTime?       @db.Date
   jobTime              String
   pocName              String
   pocContact           String
@@ -768,6 +770,137 @@ model AttendanceLog {
 
   @@index([userId, loginAt])
   @@map("attendance_logs")
+}
+
+// MIS weekly performance records (Module #63, MIS Dashboard). Source
+// (Master/src/pages/MIS/Dashboard.jsx) read these rows from the Google
+// Apps Script "For Records" sheet by numeric column index (row[2]=name,
+// row[3]=target ... row[18]=nextWeekCommitment, Dashboard.jsx:340-381);
+// the MIS data source Open Question was resolved to Postgres (see
+// docs/migration/MASTER_PLAN.md § Open Questions #4), so this model is the
+// permanent replacement for that sheet. Like `MisReportEntry` above, rows
+// carry a plain `name` string with no `Employee` FK — the source matched
+// people by display name only (Dashboard.jsx:383-400). `phone` exists
+// because the source's WhatsApp send needed a phone number and buggily used
+// `emp.email` (Dashboard.jsx:1019) while a real phone column existed in the
+// Master sheet (column B, Dashboard.jsx:260) — the migration fixes the bug
+// by storing the phone here, per the roadmap's "fix, don't port" note.
+// `commitment` fields are String because the source's commitment input
+// explicitly allows free text (Dashboard.jsx:144).
+model MisRecord {
+  id                           Int      @id @default(autoincrement())
+  name                         String
+  designation                  String?
+  phone                        String?
+  dateStart                    DateTime @db.Date
+  dateEnd                      DateTime @db.Date
+  target                       Int
+  actualWorkDone               Int
+  weeklyWorkDone               Int
+  weeklyWorkDoneOnTime         Int
+  totalWorkDone                Int
+  weekPending                  Int
+  allPendingTillDate           Int
+  plannedWorkNotDone           Int      @default(0)
+  plannedWorkNotDoneOnTime     Int      @default(0)
+  commitment                   String?
+  nextWeekPlannedNotDone       Int?
+  nextWeekPlannedNotDoneOnTime Int?
+  nextWeekCommitment           String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  @@index([name])
+  @@index([dateStart])
+  @@map("mis_records")
+}
+
+// MIS archived weekly commitments (Modules #62 History Commitment + #63
+// Dashboard "Submit Selection"). Source upserted one row per employee per
+// week into the "Archived" sheet keyed by name + week start
+// (Dashboard.jsx:1054-1080, archivedMap at 282-320) — @@unique([name,
+// dateStart]) preserves that upsert semantic. The Archived sheet stored only
+// 6 columns, but the History page (HistoryCommitment.jsx:122-139) displays a
+// full 17-column snapshot (target/actual/pending + last-week + next-week
+// values), so submission snapshots the whole MisRecord here; workNotDone /
+// workNotDoneOnTime are computed as 100 - weekly done values, exactly how
+// the source derived them (HistoryCommitment.jsx:23-24). See
+// docs/migration/DECISIONS.md.
+model MisArchivedCommitment {
+  id                           Int      @id @default(autoincrement())
+  name                         String
+  dateStart                    DateTime @db.Date
+  dateEnd                      DateTime @db.Date
+  target                       Int      @default(0)
+  actualWorkDone               Int      @default(0)
+  workNotDone                  Int      @default(0)
+  workNotDoneOnTime            Int      @default(0)
+  totalWorkDone                Int      @default(0)
+  weekPending                  Int      @default(0)
+  allPendingTillDate           Int      @default(0)
+  lastWeekPlannedNotDone       Int?
+  lastWeekPlannedNotDoneOnTime Int?
+  lastWeekCommitment           String?
+  nextWeekPlannedNotDone       Int?
+  nextWeekPlannedNotDoneOnTime Int?
+  nextWeekCommitment           String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  @@unique([name, dateStart])
+  @@index([dateStart])
+  @@map("mis_archived_commitments")
+}
+
+// MIS KPI/KRA tracker (Module #64). Source (Master/src/pages/MIS/KpiKra.jsx)
+// is an orphaned page with a confirmed render crash (undefined `loading`,
+// unimported `Loader2`, KpiKra.jsx:45-54) — rewritten, not ported, per the
+// roadmap. Fields mirror its DUMMY_KPI row shape exactly (KpiKra.jsx:6-19).
+// The Migration Matrix's "data source: MisRecord" note doesn't hold — none
+// of kpi/kra/achieved/period/remarks exist on the weekly-record shape — so
+// this is its own model; see docs/migration/DECISIONS.md.
+model MisKpiKraEntry {
+  id         Int      @id @default(autoincrement())
+  name       String
+  department String?
+  kpi        String
+  kra        String
+  target     Int
+  achieved   Int
+  percentage Int
+  period     String?
+  remarks    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([department])
+  @@map("mis_kpi_kra_entries")
+}
+
+// MIS tasks (Modules #65 Today Tasks + #66 Pending Tasks, plus the Dashboard
+// user-details task breakdown). Source pages both fetched the same Apps
+// Script "Tasks" sheet with conflicting index-7 readings — `todayTask` note
+// text in TodayTasks.jsx:34 vs `priority` in PendingTasks.jsx:33 — so this
+// model carries both fields. `status`/`priority` stay lowercase strings
+// ("pending"/"in-progress"/"completed", "high"/"medium"/"low") to preserve
+// the source's business terminology verbatim (validated by Zod at the API
+// boundary), following the `Employee.status` string precedent.
+model MisTask {
+  id          Int       @id @default(autoincrement())
+  fmsName     String?
+  taskName    String
+  personName  String
+  description String?
+  dueDate     DateTime? @db.Date
+  status      String    @default("pending")
+  priority    String    @default("medium")
+  todayTask   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([dueDate])
+  @@map("mis_tasks")
 }
 
 enum Role {

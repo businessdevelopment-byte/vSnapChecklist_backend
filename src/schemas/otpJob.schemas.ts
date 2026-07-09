@@ -46,20 +46,24 @@ export const externalJobDateRangeSchema = z.object({
 export const externalOtpJobSchema = z.object({
   jobId: z.string().min(1),
   projectId: z.string().min(1),
-  clientName: z.string().min(1),
-  jobGenre: z.string().min(1),
+  // Not min(1) — real historical records can have these blank; they map to
+  // NOT NULL (but non-identity) Prisma columns, so empty string is fine.
+  clientName: z.string(),
+  jobGenre: z.string(),
   customIdName: z.string().nullish(),
   customId: z.string().nullish(),
-  salesExecutive: z.string().min(1),
+  salesExecutive: z.string(),
   jobDate: z.string().min(1),
-  deliveryDate: z.string().min(1),
-  jobTime: z.string().min(1),
-  pocName: z.string().min(1),
-  pocContact: z.string().min(1),
+  // Frequently absent at job-creation time in the source system (not an
+  // edge case — ~62% null in a sampled range).
+  deliveryDate: z.string().nullish(),
+  jobTime: z.string(),
+  pocName: z.string(),
+  pocContact: z.string(),
   pocWhatsApp: z.string().nullish(),
   pocEmail: z.string().nullish(),
   poc2ndEmail: z.string().nullish(),
-  jobCity: z.string().min(1),
+  jobCity: z.string(),
   jobShootAddress: z.string().nullish(),
   jobSpecifications: z.string().nullish(),
   deliverables: z.string().nullish(),

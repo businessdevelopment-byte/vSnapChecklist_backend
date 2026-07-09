@@ -11,6 +11,7 @@ import systemSettingsRoutes from "./systemSettings.routes";
 import uploadRoutes from "./upload.routes";
 import otpJobRoutes from "./otpJob.routes";
 import otpStageRoutes from "./otpStage.routes";
+import opsAllotmentRoutes from "./opsAllotment.routes";
 import pmsJobRoutes from "./pmsJob.routes";
 import politicalJobRoutes from "./politicalJob.routes";
 import employeeRoutes from "./employee.routes";
@@ -27,6 +28,10 @@ import payrollRoutes from "./payroll.routes";
 import misReportRoutes from "./misReport.routes";
 import hrDashboardRoutes from "./hrDashboard.routes";
 import companyCalendarRoutes from "./companyCalendar.routes";
+import misRecordRoutes from "./misRecord.routes";
+import misCommitmentRoutes from "./misCommitment.routes";
+import misKpiKraRoutes from "./misKpiKra.routes";
+import misTaskRoutes from "./misTask.routes";
 
 const router = Router();
 
@@ -42,6 +47,7 @@ router.use("/system-settings", systemSettingsRoutes);
 router.use("/upload", uploadRoutes);
 router.use("/otp-jobs", otpJobRoutes);
 router.use("/otp-jobs", otpStageRoutes);
+router.use("/ops-allotments", opsAllotmentRoutes);
 router.use("/pms-jobs", pmsJobRoutes);
 router.use("/political-jobs", politicalJobRoutes);
 router.use("/employees", employeeRoutes);
@@ -58,5 +64,9 @@ router.use("/payroll", payrollRoutes);
 router.use("/mis-report", misReportRoutes);
 router.use("/hr-dashboard", hrDashboardRoutes);
 router.use("/company-calendar", companyCalendarRoutes);
+router.use("/mis-records", misRecordRoutes);
+router.use("/mis-commitments", misCommitmentRoutes);
+router.use("/mis-kpi-kra", misKpiKraRoutes);
+router.use("/mis-tasks", misTaskRoutes);
 
 export default router;
