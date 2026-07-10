@@ -19,6 +19,16 @@ export const otpJobController = {
     }
   },
 
+  async listClients(_req: Request, res: Response): Promise<void> {
+    try {
+      const clients = await otpJobService.listDistinctClients();
+      sendSuccess(res, clients, "Clients fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch clients", e.status ?? 500);
+    }
+  },
+
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createOtpJobSchema.parse(req.body);

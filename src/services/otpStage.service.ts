@@ -16,6 +16,7 @@ export const otpStageService = {
         { client: { contains: query.search, mode: "insensitive" } },
       ];
     }
+    if (query.client) where.client = query.client;
 
     const [data, total] = await Promise.all([
       prisma.otpJob.findMany({ where, skip, take, orderBy: { updatedAt: "desc" } }),
@@ -29,14 +30,15 @@ export const otpStageService = {
     const { skip, take, page, limit } = getPaginationParams(query);
 
     const where: Prisma.OtpStageEventWhereInput = { stage };
+    const otpJobWhere: Prisma.OtpJobWhereInput = {};
     if (query.search) {
-      where.otpJob = {
-        OR: [
-          { jobId: { contains: query.search, mode: "insensitive" } },
-          { client: { contains: query.search, mode: "insensitive" } },
-        ],
-      };
+      otpJobWhere.OR = [
+        { jobId: { contains: query.search, mode: "insensitive" } },
+        { client: { contains: query.search, mode: "insensitive" } },
+      ];
     }
+    if (query.client) otpJobWhere.client = query.client;
+    if (Object.keys(otpJobWhere).length > 0) where.otpJob = otpJobWhere;
 
     const [events, total] = await Promise.all([
       prisma.otpStageEvent.findMany({

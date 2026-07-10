@@ -97,6 +97,15 @@ export const otpJobService = {
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
 
+  async listDistinctClients(): Promise<string[]> {
+    const rows = await prisma.otpJob.findMany({
+      distinct: ["client"],
+      select: { client: true },
+      orderBy: { client: "asc" },
+    });
+    return rows.map((r) => r.client).filter(Boolean);
+  },
+
   async create(input: CreateOtpJobInput) {
     const taxableAmount = input.taxableAmount;
     const gst = Math.round(taxableAmount * GST_RATE * 100) / 100;

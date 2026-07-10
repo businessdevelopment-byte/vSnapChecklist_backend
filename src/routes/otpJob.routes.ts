@@ -8,6 +8,7 @@ router.use(authMiddleware);
 
 router.get("/", otpJobController.list);
 router.post("/", otpJobController.create);
+router.get("/clients", otpJobController.listClients);
 router.get("/external", otpJobController.listExternal);
 router.post("/import-external", otpJobController.importExternal);
 

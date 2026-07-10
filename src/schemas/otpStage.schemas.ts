@@ -69,13 +69,18 @@ const finalPhotographerSchema = z.object({
   approvalRemarks: z.string().optional(),
 });
 
+// Mirrors the source "Photographer Briefing Form" (Google Forms) field-for-field.
 const photographerBriefingSchema = z.object({
-  assistantPhotographer: z.string().optional(),
-  videographerAssigned: z.string().optional(),
-  equipmentRequired: z.string().optional(),
+  projectId: z.string().optional(),
+  jobId: z.string().optional(),
+  photographerName: z.string().optional(),
+  contactNumber: z.string().optional(),
+  assistantPhotographer: z.enum(["Yes", "No"]).default("No"),
+  videographerAssigned: z.enum(["Yes", "No"]).default("No"),
+  equipmentList: z.array(z.string()).default([]),
   photographyCost: z.string().optional(),
-  status: z.enum(["Pending", "Confirmed", "In Progress"]).default("Pending"),
-  allotmentRemarks: z.string().optional(),
+  allotmentConfirmationStatus: z.enum(["Completed", "Pending"]).default("Pending"),
+  briefingRemarks: z.string().optional(),
 });
 
 const makeTokenSchema = z.object({
@@ -197,6 +202,7 @@ export const stageListQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(500).default(100),
   search: z.string().optional(),
+  client: z.string().optional(),
 });
 
 export const advanceStageSchema = z.object({
