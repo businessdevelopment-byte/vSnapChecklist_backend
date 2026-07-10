@@ -14,4 +14,15 @@ export const photographerAllotmentController = {
       sendError(res, e.message ?? "Failed to fetch photographer allotments", e.status ?? 500);
     }
   },
+
+  async apply(req: Request, res: Response): Promise<void> {
+    try {
+      const { fromDate, toDate } = photographerAllotmentDateRangeSchema.parse(req.body);
+      const result = await photographerAllotmentService.applyCreatedBetween(fromDate, toDate);
+      sendSuccess(res, result, "Photographer allotments applied");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to apply photographer allotments", e.status ?? 500);
+    }
+  },
 };
