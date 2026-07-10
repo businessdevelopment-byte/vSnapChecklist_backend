@@ -83,15 +83,17 @@ const photographerBriefingSchema = z.object({
   briefingRemarks: z.string().optional(),
 });
 
+// Mirrors the source "Make Token Payment Form" (Google Forms) field-for-field.
 const makeTokenSchema = z.object({
+  projectId: z.string().optional(),
+  jobId: z.string().optional(),
   tokenAmount: z.string().optional(),
-  paymentMode: z.enum(["UPI (GPay/PhonePe)", "Bank Transfer", "Cash", "Cheque"]).default("UPI (GPay/PhonePe)"),
+  paymentMode: z.enum(["UPI", "Cash", "Bank Transfer"]).default("UPI"),
   paymentPaidDate: z.string().optional(),
   receiptNumber: z.string().optional(),
-  paymentRemarks: z.string().optional(),
+  paymentAgain: z.enum(["Yes", "No"]).default("No"),
   paymentScreenshotUrl: z.string().optional(),
-  paymentAgain: z.enum(["No", "Yes"]).default("No"),
-  remarks: z.string().optional(),
+  paymentRemarks: z.string().optional(),
 });
 
 const storyBriefingSchema = z.object({
