@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { resolveOwnMisName } from "./misRecord.service";
 import type {
   MisTaskQueryInput,
   CreateMisTaskInput,
@@ -8,25 +9,34 @@ import type {
 } from "../schemas/misTask.schemas";
 
 export const misTaskService = {
-  async list(query: MisTaskQueryInput) {
+  async list(query: MisTaskQueryInput, requester: { userId: number; role: string }) {
     const { skip, take, page, limit } = getPaginationParams(query);
 
-    const where: Prisma.MisTaskWhereInput = {};
+    const conditions: Prisma.MisTaskWhereInput[] = [];
     if (query.search) {
       // Matches both source pages' search fields: person, task, FMS/project
       // (TodayTasks.jsx:50-54, PendingTasks.jsx:48-52)
-      where.OR = [
-        { personName: { contains: query.search, mode: "insensitive" } },
-        { taskName: { contains: query.search, mode: "insensitive" } },
-        { fmsName: { contains: query.search, mode: "insensitive" } },
-      ];
+      conditions.push({
+        OR: [
+          { personName: { contains: query.search, mode: "insensitive" } },
+          { taskName: { contains: query.search, mode: "insensitive" } },
+          { fmsName: { contains: query.search, mode: "insensitive" } },
+        ],
+      });
     }
     if (query.status) {
-      where.status = query.status;
+      conditions.push({ status: query.status });
     }
     if (query.personName) {
-      where.personName = { equals: query.personName, mode: "insensitive" };
+      conditions.push({ personName: { equals: query.personName, mode: "insensitive" } });
     }
+    // Mirrors misRecord.service.ts's own-name scoping — a non-admin should
+    // only see their own tasks, not the whole team's.
+    if (requester.role !== "ADMIN") {
+      const ownName = await resolveOwnMisName(requester.userId);
+      conditions.push({ personName: { equals: ownName, mode: "insensitive" } });
+    }
+    const where: Prisma.MisTaskWhereInput = conditions.length ? { AND: conditions } : {};
 
     const [data, total] = await Promise.all([
       prisma.misTask.findMany({

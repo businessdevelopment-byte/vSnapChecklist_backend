@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { resolveOwnMisName } from "./misRecord.service";
 import type {
   MisKpiKraQueryInput,
   CreateMisKpiKraInput,
@@ -8,21 +9,30 @@ import type {
 } from "../schemas/misKpiKra.schemas";
 
 export const misKpiKraService = {
-  async list(query: MisKpiKraQueryInput) {
+  async list(query: MisKpiKraQueryInput, requester: { userId: number; role: string }) {
     const { skip, take, page, limit } = getPaginationParams(query);
 
-    const where: Prisma.MisKpiKraEntryWhereInput = {};
+    const conditions: Prisma.MisKpiKraEntryWhereInput[] = [];
     if (query.search) {
       // Matches the source page's search fields: name, KPI, KRA (KpiKra.jsx:29-33)
-      where.OR = [
-        { name: { contains: query.search, mode: "insensitive" } },
-        { kpi: { contains: query.search, mode: "insensitive" } },
-        { kra: { contains: query.search, mode: "insensitive" } },
-      ];
+      conditions.push({
+        OR: [
+          { name: { contains: query.search, mode: "insensitive" } },
+          { kpi: { contains: query.search, mode: "insensitive" } },
+          { kra: { contains: query.search, mode: "insensitive" } },
+        ],
+      });
     }
     if (query.department) {
-      where.department = query.department;
+      conditions.push({ department: query.department });
     }
+    // Mirrors misRecord.service.ts's own-name scoping — KPI/KRA data is
+    // per-employee performance data and shouldn't be readable by every USER.
+    if (requester.role !== "ADMIN") {
+      const ownName = await resolveOwnMisName(requester.userId);
+      conditions.push({ name: { equals: ownName, mode: "insensitive" } });
+    }
+    const where: Prisma.MisKpiKraEntryWhereInput = conditions.length ? { AND: conditions } : {};
 
     const [data, total] = await Promise.all([
       prisma.misKpiKraEntry.findMany({

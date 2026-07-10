@@ -11,7 +11,10 @@ export const misKpiKraController = {
   async list(req: Request, res: Response): Promise<void> {
     try {
       const query = misKpiKraQuerySchema.parse(req.query);
-      const result = await misKpiKraService.list(query);
+      const result = await misKpiKraService.list(query, {
+        userId: req.user!.userId,
+        role: req.user!.role,
+      });
       sendPaginated(res, result, "KPI/KRA entries fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

@@ -96,68 +96,92 @@ const makeTokenSchema = z.object({
   paymentRemarks: z.string().optional(),
 });
 
+// Mirrors the source "Story Briefing From Client Form" (Google Forms) field-for-field.
 const storyBriefingSchema = z.object({
-  briefingMode: z.enum(["Zoom Call", "Physical Meeting", "Phone Call", "WhatsApp/E-mail"]).default("Zoom Call"),
+  projectId: z.string().optional(),
+  jobId: z.string().optional(),
+  briefingMode: z.enum(["Call", "WhatsApp", "Meeting"]).default("Call"),
   themeVision: z.string().optional(),
   shootStyle: z.string().optional(),
-  referenceLink: z.string().optional(),
   keyMoments: z.string().optional(),
+  referenceLink: z.string().optional(),
   preferredLocations: z.string().optional(),
   outfitsBride: z.string().optional(),
   outfitsGroom: z.string().optional(),
-  editingStyle: z.string().optional(),
-  voiceUploadUrl: z.string().optional(),
-  specialInstructions: z.string().optional(),
+  editingStyle: z.enum(["Funky & flashy", "Classy & smooth"]).default("Funky & flashy"),
   additionalRequirement: z.string().optional(),
-  shotListReceived: z.enum(["Yes", "No", "Awaited"]).default("Yes"),
+  specialInstructions: z.string().optional(),
+  voiceUploadUrl: z.string().optional(),
+  shotListReceived: z.enum(["Yes", "No"]).default("No"),
   sharedWithCreative: yesNo("Yes"),
-  finalBriefStatus: z.enum(["Pending", "Approved", "Changes Requested"]).default("Pending"),
+  finalBriefStatus: z.enum(["Completed", "Pending"]).default("Pending"),
+  submittedBy: z.string().optional(),
 });
 
+// Mirrors the source "Moodboard Creation Form" (Google Forms) field-for-field.
 const moodboardCreationSchema = z.object({
+  projectId: z.string().optional(),
+  jobId: z.string().optional(),
   moodboardRequired: yesNo("Yes"),
-  creativeTeam: z.string().optional(),
+  creativeTeam: z.enum(["Operation Team", "Creative Team", "Editing Team"]).default("Creative Team"),
   createdByName: z.string().optional(),
-  referenceLink: z.string().optional(),
   refInputsReceived: yesNo("Yes"),
+  referenceLink: z.string().optional(),
   sharedWithClient: yesNo("Yes"),
-  clientFeedbackStatus: z.enum(["Awaited", "Approved", "Changes Requested", "Rejected"]).default("Awaited"),
+  clientFeedbackStatus: z.enum(["Approved", "Changes", "Pending"]).default("Pending"),
   revisionCount: z.coerce.number().int().nonnegative().default(0),
   finalApprovalDate: z.string().optional(),
-  finalMoodboardStatus: z.enum(["Pending", "Approved", "Closed"]).default("Pending"),
+  finalMoodboardStatus: z.enum(["Completed", "Pending"]).default("Pending"),
+  submittedBy: z.string().optional(),
 });
 
+// Mirrors the source "Client Briefing Before Shoot" (Google Forms) field-for-field.
 const clientBriefingBeforeShootSchema = z.object({
+  projectId: z.string().optional(),
+  jobId: z.string().optional(),
   briefingMode: z.enum(["WhatsApp Call", "Phone Call", "Zoom Call", "Physical Meeting"]).default("WhatsApp Call"),
   clientAvailability: z.enum(["Confirmed", "Tentative", "Rescheduled"]).default("Confirmed"),
   shootTimelineExplained: yesNo("Yes"),
   deliverablesExplained: yesNo("Yes"),
+  clientOutfitChecked: z.string().optional(),
+  clientOutfitImageUrl: z.string().optional(),
   clientConfirmationStatus: z.enum(["Confirmed", "Pending", "Awaited"]).default("Confirmed"),
   briefingRemarks: z.string().optional(),
+  submittedBy: z.string().optional(),
 });
 
+// Mirrors the source "Photographer Briefing Before Shoot" (Google Forms) field-for-field.
 const photographerBriefingBeforeShootSchema = z.object({
+  projectId: z.string().optional(),
+  jobId: z.string().optional(),
   briefingMode: z.enum(["Phone Call", "WhatsApp", "In Person", "Zoom"]).default("Phone Call"),
   locationShared: yesNo("Yes"),
+  locationsList: z.string().optional(),
   expectationsShared: yesNo("Yes"),
+  clientReferenceLink: z.string().optional(),
   shotListShared: yesNo("Yes"),
+  equipmentCheck: yesNo("Yes"),
+  equipmentList: z.string().optional(),
   reportingTime: z.string().optional(),
-  contactPerson: z.string().optional(),
+  clientDetailsShared: yesNo("Yes"),
   photographerConfirmation: z.enum(["Yes", "No", "Tentative"]).default("Yes"),
   briefingRemarks: z.string().optional(),
 });
 
+// Mirrors the source "Moodboard Delivery Form" (Google Forms) field-for-field.
 const moodboardDeliveryToClientSchema = z.object({
-  deliveryMode: z.enum(["WhatsApp & Email", "Physical Handover", "Cloud Link (Drive/Dropbox)", "Portal Upload"]).default("WhatsApp & Email"),
-  deliveredBy: z.string().default("Marketing Team"),
+  projectId: z.string().optional(),
+  jobId: z.string().optional(),
+  deliveryMode: z.enum(["Whatsapp", "Email", "Drive"]).default("Whatsapp"),
+  deliveredBy: z.enum(["Operation Team", "Creative Team"]).default("Operation Team"),
   deliveredByName: z.string().optional(),
-  acknowledgementReceived: z.enum(["Yes", "No", "Awaited"]).default("No"),
-  feedbackReceived: z.enum(["Yes", "No", "In Progress"]).default("No"),
+  acknowledgementReceived: z.enum(["Yes", "No"]).default("No"),
+  feedbackReceived: z.enum(["Yes", "No"]).default("No"),
   specialInstructions: z.string().optional(),
-  revisionRequired: z.enum(["No", "Yes (Minor)", "Yes (Major)"]).default("No"),
-  finalApprovalReceived: z.enum(["Yes", "No", "Pending"]).default("No"),
+  revisionRequired: z.enum(["Yes", "No"]).default("No"),
+  finalApprovalReceived: z.enum(["Yes", "No"]).default("No"),
   finalApprovalDate: z.string().optional(),
-  deliveryStatus: z.enum(["Pending", "Delivered", "Closed"]).default("Pending"),
+  deliveryStatus: z.enum(["Completed", "Pending"]).default("Pending"),
 });
 
 export const otpStageSchemas: Record<OtpStageName, z.ZodTypeAny> = {

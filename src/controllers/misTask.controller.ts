@@ -11,7 +11,10 @@ export const misTaskController = {
   async list(req: Request, res: Response): Promise<void> {
     try {
       const query = misTaskQuerySchema.parse(req.query);
-      const result = await misTaskService.list(query);
+      const result = await misTaskService.list(query, {
+        userId: req.user!.userId,
+        role: req.user!.role,
+      });
       sendPaginated(res, result, "MIS tasks fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
