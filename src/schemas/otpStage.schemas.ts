@@ -2,9 +2,9 @@ import { z } from "zod";
 
 // Ordered sequence of the 13 OTP stages, used for stage-param validation.
 // COMPLETED is the true terminal marker — completing the last real stage
-// (MOODBOARD_DELIVERY_TO_CLIENT) moves a job here instead of failing with
-// "no next stage." No page ever queries pending-at-COMPLETED, so completed
-// jobs simply stop appearing in any stage's Pending list.
+// (PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT) moves a job here instead of failing
+// with "no next stage." No page ever queries pending-at-COMPLETED, so
+// completed jobs simply stop appearing in any stage's Pending list.
 export const OTP_STAGE_ORDER = [
   "ORDER_RECEIVED",
   "ASSIGN_MEMBER",
@@ -16,9 +16,9 @@ export const OTP_STAGE_ORDER = [
   "MAKE_TOKEN",
   "STORY_BRIEFING",
   "MOODBOARD_CREATION",
+  "MOODBOARD_DELIVERY_TO_CLIENT",
   "CLIENT_BRIEFING_BEFORE_SHOOT",
   "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT",
-  "MOODBOARD_DELIVERY_TO_CLIENT",
   "COMPLETED",
 ] as const;
 
@@ -195,9 +195,9 @@ export const otpStageSchemas: Record<OtpStageName, z.ZodTypeAny> = {
   MAKE_TOKEN: makeTokenSchema,
   STORY_BRIEFING: storyBriefingSchema,
   MOODBOARD_CREATION: moodboardCreationSchema,
+  MOODBOARD_DELIVERY_TO_CLIENT: moodboardDeliveryToClientSchema,
   CLIENT_BRIEFING_BEFORE_SHOOT: clientBriefingBeforeShootSchema,
   PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: photographerBriefingBeforeShootSchema,
-  MOODBOARD_DELIVERY_TO_CLIENT: moodboardDeliveryToClientSchema,
   COMPLETED: z.object({}), // terminal — advanceStage never validates against this, nothing moves past it
 };
 
@@ -217,10 +217,10 @@ export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unk
   PHOTOGRAPHER_BRIEFING: () => "MAKE_TOKEN",
   MAKE_TOKEN: () => "STORY_BRIEFING",
   STORY_BRIEFING: () => "MOODBOARD_CREATION",
-  MOODBOARD_CREATION: () => "CLIENT_BRIEFING_BEFORE_SHOOT",
+  MOODBOARD_CREATION: () => "MOODBOARD_DELIVERY_TO_CLIENT",
+  MOODBOARD_DELIVERY_TO_CLIENT: () => "CLIENT_BRIEFING_BEFORE_SHOOT",
   CLIENT_BRIEFING_BEFORE_SHOOT: () => "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT",
-  PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: () => "MOODBOARD_DELIVERY_TO_CLIENT",
-  MOODBOARD_DELIVERY_TO_CLIENT: () => "COMPLETED",
+  PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: () => "COMPLETED",
   COMPLETED: () => null,
 };
 

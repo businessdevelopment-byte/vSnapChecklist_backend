@@ -1,30 +1,43 @@
-import { Prisma, PipelineType } from "@prisma/client";
+import { Prisma, PipelineType, type OtpJob } from "@prisma/client";
 import { prisma } from "../config/database";
-import type { CreatePmsJobInput, CreatePoliticalJobInput } from "../schemas/pipelineJob.schemas";
+import type { CreatePoliticalJobInput } from "../schemas/pipelineJob.schemas";
 
-// Sales Team is PMS's own intake stage (it has a real form, unlike OTP's
-// read-only Order Received) — creating a job places it directly into
-// SALES_TEAM's pending queue, matching Master's source where the dummy
-// SalesTeam data IS the pending queue itself, with no separate log stage.
+// PMS's own job-creation intake (formerly Sales Team) was removed per
+// explicit direction — PMS jobs arrive instead via the hand-off below,
+// triggered when an OtpJob completes the entire OTP pipeline (see
+// otpStageService.advanceStage). Reuses the OTP job's own jobId so the same
+// job is traceable by one id across both pipelines — OTP's vsnapu-style ids
+// and PMS's own historical `PMS-JOB-XXXX` ids never collide.
 export const pipelineJobService = {
-  async createPmsJob(input: CreatePmsJobInput) {
-    const sequence = (await prisma.pipelineJob.count({ where: { pipelineType: PipelineType.PMS } })) + 1;
-    const jobId = `PMS-JOB-${String(sequence).padStart(4, "0")}`;
-
+  createFromOtpJob(otpJob: OtpJob) {
     return prisma.pipelineJob.create({
       data: {
-        ...input,
         pipelineType: PipelineType.PMS,
-        jobId,
-        jobDate: input.jobDate ? new Date(input.jobDate) : undefined,
-        deliveryDate: input.deliveryDate ? new Date(input.deliveryDate) : undefined,
-        currentStage: "SALES_TEAM",
+        jobId: otpJob.jobId,
+        projectId: otpJob.projectId,
+        client: otpJob.client,
+        jobGenre: otpJob.jobGenre,
+        customIdName: otpJob.customIdName,
+        customId: otpJob.customId,
+        salesExecutive: otpJob.salesExecutive,
+        jobDate: otpJob.jobDate,
+        deliveryDate: otpJob.deliveryDate,
+        jobTime: otpJob.jobTime,
+        pocName: otpJob.pocName,
+        pocContact: otpJob.pocContact,
+        pocWhatsapp: otpJob.pocWhatsapp,
+        pocEmail: otpJob.pocEmail,
+        poc2ndEmail: otpJob.poc2ndEmail,
+        jobCity: otpJob.jobCity,
+        jobShootAddress: otpJob.jobShootAddress,
+        jobSpecification: otpJob.jobSpecification,
+        deliverables: otpJob.deliverables,
+        currentStage: "REPORTING_CHECK",
       } satisfies Prisma.PipelineJobUncheckedCreateInput,
     });
   },
 
-  // Job Cards is Political's own intake stage, same pattern as PMS's Sales
-  // Team. Political has no "client" concept in the source (it tracks content
+  // Job Cards is Political's own intake stage. Political has no "client" concept in the source (it tracks content
   // projects, not client jobs) — `client` is set to `projectName`'s value so
   // every pipelineType still has one consistent "what is this row" display
   // field, satisfying the column's NOT NULL constraint without inventing a

@@ -3,6 +3,7 @@ import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { otpStageSchemas, otpStageTransitions, type OtpStageName } from "../schemas/otpStage.schemas";
 import type { StageListQueryInput } from "../schemas/otpStage.schemas";
+import { pipelineJobService } from "./pipelineJob.service";
 
 export const otpStageService = {
   async listPending(stage: OtpStageName, query: StageListQueryInput) {
@@ -77,13 +78,18 @@ export const otpStageService = {
       throw Object.assign(new Error("This order has already completed the final stage"), { status: 400 });
     }
 
-    const [, updatedJob] = await prisma.$transaction([
-      prisma.otpStageEvent.create({
-        data: { otpJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue },
-      }),
-      prisma.otpJob.update({ where: { id: job.id }, data: { currentStage: next } }),
-    ]);
+    const stageEventCreate = prisma.otpStageEvent.create({
+      data: { otpJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue },
+    });
+    const jobUpdate = prisma.otpJob.update({ where: { id: job.id }, data: { currentStage: next } });
 
-    return updatedJob;
+    // Hand off to PMS the moment an order finishes the entire OTP pipeline —
+    // creates the PipelineJob that PMS's Reporting Check pending queue reads.
+    const results =
+      next === "COMPLETED"
+        ? await prisma.$transaction([stageEventCreate, jobUpdate, pipelineJobService.createFromOtpJob(job)])
+        : await prisma.$transaction([stageEventCreate, jobUpdate]);
+
+    return results[1];
   },
 };
