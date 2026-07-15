@@ -10,7 +10,8 @@ const envSchema = z.object({
     .enum(["development", "production", "test"])
     .default("development"),
   JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
-  JWT_EXPIRES_IN: z.string().default("7d"),
+  JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
+  REFRESH_TOKEN_EXPIRES_IN_DAYS: z.coerce.number().int().positive().default(30),
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   VSNAPU_JOB_MASTER_BASE_URL: z.string().url().default("https://apis.vsnapu.com"),
 });

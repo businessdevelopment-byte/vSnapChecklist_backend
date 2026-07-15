@@ -39,6 +39,7 @@ model User {
   department        Department?         @relation(fields: [departmentId], references: [id])
   employee          Employee?           @relation(fields: [employeeId], references: [id])
   sectionPermissions SectionPermission[]
+  refreshTokens     RefreshToken[]
 
   @@index([username])
   @@index([departmentId])
@@ -54,6 +55,26 @@ model SectionPermission {
   @@id([userId, sectionKey])
   @@index([userId])
   @@map("section_permissions")
+}
+
+model RefreshToken {
+  id                Int       @id @default(autoincrement())
+  userId            Int
+  tokenHash         String    @unique
+  family            String
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId Int?      @unique
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime  @default(now())
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy   RefreshToken? @relation("TokenRotation", fields: [replacedByTokenId], references: [id], onDelete: SetNull)
+  replacedFrom RefreshToken? @relation("TokenRotation")
+
+  @@index([userId])
+  @@index([family])
+  @@map("refresh_tokens")
 }
 
 model Department {

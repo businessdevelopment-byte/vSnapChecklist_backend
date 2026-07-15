@@ -12,18 +12,21 @@ import { z } from "zod";
 // Unlike PMS, there is no full-pipeline-restart loop (no Political equivalent
 // of PMS's Reshoot -> SalesTeam). DOCUMENT_OF_POST is the terminal stage.
 export const POLITICAL_STAGE_ORDER = [
-  "JOB_CARDS",
-  "INFLUENCER_DETAILS",
-  "SCRIPT_WRITING",
-  "SCRIPT_APPROVAL",
-  "SEND_SCRIPT",
+  "PROJECT_ORDER",
+  "JOB_CARD_PLANNING",
+  "INFLUENCER_DETAILS_UPDATE",
+  "INFLUENCER_SCRIPT_WRITING",
+  "INFLUENCER_SCRIPT_APPROVAL",
+  "SEND_SCRIPT_TO_INFLUENCER",
+  "GET_VIDEO_FROM_INFLUENCER",
+  "INHOUSE_SCRIPT_WRITING",
+  "INHOUSE_SCRIPT_APPROVAL",
   "SHOOTING",
   "VOICEOVER",
   "EDITING",
   "EDITING_QC",
   "RE_EDIT",
   "RE_QC",
-  "VIDEO_CHECK",
   "DELIVERY_POSTING",
   "DOCUMENT_OF_POST",
   "COMPLETED",
@@ -32,210 +35,144 @@ export const POLITICAL_STAGE_ORDER = [
 export type PoliticalStageName = (typeof POLITICAL_STAGE_ORDER)[number];
 
 export const politicalStageTransitions: Record<PoliticalStageName, (data: Record<string, unknown>) => PoliticalStageName | null> = {
-  JOB_CARDS: () => "INFLUENCER_DETAILS",
-  INFLUENCER_DETAILS: () => "SCRIPT_WRITING",
-  SCRIPT_WRITING: () => "SCRIPT_APPROVAL",
-  SCRIPT_APPROVAL: () => "SEND_SCRIPT",
-  SEND_SCRIPT: () => "SHOOTING",
+  PROJECT_ORDER: () => "JOB_CARD_PLANNING",
+  JOB_CARD_PLANNING: (data) =>
+    data.contentType === "Influencer" ? "INFLUENCER_DETAILS_UPDATE" : "INHOUSE_SCRIPT_WRITING",
+  INFLUENCER_DETAILS_UPDATE: () => "INFLUENCER_SCRIPT_WRITING",
+  INFLUENCER_SCRIPT_WRITING: () => "INFLUENCER_SCRIPT_APPROVAL",
+  INFLUENCER_SCRIPT_APPROVAL: () => "SEND_SCRIPT_TO_INFLUENCER",
+  SEND_SCRIPT_TO_INFLUENCER: () => "GET_VIDEO_FROM_INFLUENCER",
+  GET_VIDEO_FROM_INFLUENCER: () => "DELIVERY_POSTING",
+  INHOUSE_SCRIPT_WRITING: () => "INHOUSE_SCRIPT_APPROVAL",
+  INHOUSE_SCRIPT_APPROVAL: () => "SHOOTING",
   SHOOTING: () => "VOICEOVER",
   VOICEOVER: () => "EDITING",
   EDITING: () => "EDITING_QC",
-  EDITING_QC: (data) => (data.qcStatus === "Approved" ? "VIDEO_CHECK" : "RE_EDIT"),
+  EDITING_QC: (data) => (data.qcApproval === "Approved" ? "DELIVERY_POSTING" : "RE_EDIT"),
   RE_EDIT: () => "RE_QC",
-  RE_QC: (data) => (data.reQCStatus === "Approved" ? "VIDEO_CHECK" : "RE_EDIT"),
-  VIDEO_CHECK: () => "DELIVERY_POSTING",
+  RE_QC: (data) => (data.status === "Closed (Done)" ? "DELIVERY_POSTING" : "RE_EDIT"),
   DELIVERY_POSTING: () => "DOCUMENT_OF_POST",
   DOCUMENT_OF_POST: () => "COMPLETED",
   COMPLETED: () => null,
 };
 
-// Job Cards' own priority field has 4 options (High/Medium/Low/Urgent); every
-// other stage's priority field has only 3 (High/Medium/Low) — confirmed by
-// reading each stage's own Form.jsx, not assumed to be uniform.
-const jobCardPriorityEnum = z.enum(["High", "Medium", "Low", "Urgent"]).default("Medium");
 const priorityEnum = z.enum(["High", "Medium", "Low"]).default("Medium");
 const statusEnum = z.enum(["Pending", "Completed"]).default("Pending");
 
-const jobCardsSchema = z.object({
-  priority: jobCardPriorityEnum,
-  status: statusEnum,
+const projectOrderSchema = z.object({
+  projectName: z.string(),
+  reportingPersonName: z.string(),
+  reportingPersonWhatsapp: z.string(),
+  reportingGroupName: z.string(),
+  instagramPages: z.string(),
+  currentFollowers: z.string(),
+  openingViews: z.string(),
+  monthlyViewsTarget: z.string(),
   remarks: z.string().optional(),
 });
 
-const influencerDetailsSchema = z.object({
-  influencerName: z.string().optional(),
-  linkOfChannel: z.string().optional(),
-  price: z.string().optional(),
-  influencerContact: z.string().optional(),
-  instagramId: z.string().optional(),
-  youtubeChannel: z.string().optional(),
-  remarks: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+const jobCardPlanningSchema = z.object({
+  plannedDate: z.string(),
+  contentType: z.enum(["Influencer", "Inhouse/Non-Face"]),
+  ideaDetailsTopic: z.string(),
+  linkOrAttachment: z.string().optional(),
+  editorName: z.string(),
 });
 
-const scriptWritingSchema = z.object({
-  scriptWritingStatus: statusEnum,
-  scriptAttachmentLink: z.string().optional(),
-  scriptFileUpload: z.string().optional(),
-  scriptNotes: z.string().optional(),
-  writerName: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+const influencerDetailsUpdateSchema = z.object({
+  influencerName: z.string(),
+  linkOfChannel: z.string(),
+  price: z.string(),
 });
 
-const scriptApprovalSchema = z.object({
-  approvalStatus: z.enum(["Pending", "Approved", "Rejected"]).default("Pending"),
-  approvedBy: z.string().optional(),
-  approvalNotes: z.string().optional(),
-  scriptAttachmentLink: z.string().optional(),
-  scriptFileUpload: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+const influencerScriptWritingSchema = z.object({
+  scriptTextUpload: z.string(),
 });
 
-const sendScriptSchema = z.object({
-  sendStatus: z.enum(["Pending", "Sent"]).default("Pending"),
-  sharedPlatform: z.string().optional(),
-  sharedBy: z.string().optional(),
-  scriptAttachmentLink: z.string().optional(),
+const inhouseScriptWritingSchema = z.object({
+  scriptTextUpload: z.string(),
+});
+
+const influencerScriptApprovalSchema = z.object({
+  status: z.enum(["Approved", "Rejected"]),
+});
+
+const inhouseScriptApprovalSchema = z.object({
+  status: z.enum(["Approved", "Rejected"]),
+});
+
+const sendScriptToInfluencerSchema = z.object({
+  jobCardNumber: z.string(),
+  status: z.enum(["Completed", "Pending"]),
   scriptFileUpload: z.string().optional(),
-  remarks: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
 });
 
 const shootingSchema = z.object({
-  shootingStatus: statusEnum,
-  shootingAttachmentLink: z.string().optional(),
-  shootingFileUpload: z.string().optional(),
-  shootDate: z.string().optional(),
-  shootLocation: z.string().optional(),
-  remarks: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  status: z.enum(["Completed", "Pending"]),
 });
 
 const voiceOverSchema = z.object({
-  voiceoverStatus: statusEnum,
-  voiceoverLink: z.string().optional(),
-  voiceoverFileUpload: z.string().optional(),
-  voiceoverArtist: z.string().optional(),
-  language: z.string().optional(),
-  remarks: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  jobCardNumber: z.string(),
+  status: z.enum(["Completed", "Pending"]),
+  videoUpload: z.string().optional(),
 });
 
 const editingSchema = z.object({
-  editingStatus: z.enum(["Pending", "In Progress", "Completed"]).default("Pending"),
-  videoLink: z.string().optional(),
-  videoFileUpload: z.string().optional(),
-  assignedEditor: z.string().optional(),
-  editingSoftware: z.string().optional(),
-  remarks: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  status: z.enum(["Completed"]),
+  videoUpload: z.string(),
 });
 
-// qcStatus is the field EditingQCPending.jsx branches on (Approved -> Video
-// Check, anything else -> Re-Edit) — verified correct against the source
-// form, unlike PMS's Data Quality Check which had a field-name mismatch bug.
 const editingQCSchema = z.object({
-  qcStatus: z.enum(["Pending", "Approved", "Rejected"]).default("Pending"),
-  qcDoneBy: z.string().optional(),
-  qcRating: z.string().optional(),
-  qcFeedback: z.string().optional(),
-  videoLink: z.string().optional(),
-  videoFileUpload: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  qcApproval: z.enum(["Okay", "Not Okay"]),
 });
 
 const reEditSchema = z.object({
-  reEditStatus: statusEnum,
-  videoLink: z.string().optional(),
-  videoFileUpload: z.string().optional(),
-  assignedEditor: z.string().optional(),
-  reEditReason: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  status: z.enum(["Okay"]),
+  videoUpload: z.string(),
 });
 
-// reQCStatus is the field ReQCPending.jsx branches on (Approved -> Video
-// Check, anything else -> back to Re-Edit) — verified correct against the
-// source form.
 const reQCSchema = z.object({
-  reQCStatus: z.enum(["Pending", "Approved", "Rejected"]).default("Pending"),
-  qcDoneBy: z.string().optional(),
-  qcRating: z.string().optional(),
-  qcFeedback: z.string().optional(),
-  videoLink: z.string().optional(),
-  videoFileUpload: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  status: z.enum(["Okay", "Not Okay"]),
 });
 
-const videoCheckSchema = z.object({
-  videoReceiveStatus: z.enum(["Pending", "Received"]).default("Pending"),
-  videoLink: z.string().optional(),
-  videoFileUpload: z.string().optional(),
-  checkedBy: z.string().optional(),
-  checkStatus: z.enum(["Pending", "Passed", "Failed"]).default("Pending"),
-  priority: priorityEnum,
-  status: statusEnum,
+const getVideoFromInfluencerSchema = z.object({
+  status: z.enum(["Okay", "Not Okay"]),
+  videoUpload: z.string(),
 });
 
-// Source's `remarks` field is declared in DeliveryPostingForm.jsx's initial
-// state but has no corresponding input anywhere in its JSX — a dead field in
-// the source that's unreachable via the UI. Deliberately omitted here rather
-// than ported, since there is no real functionality to preserve — see
-// docs/migration/DECISIONS.md.
 const deliveryPostingSchema = z.object({
-  deliveryStatus: z.enum(["Pending", "Posted"]).default("Pending"),
-  linkOfPost: z.string().optional(),
-  sharedInClientGroup: z.enum(["Yes", "No"]).default("No"),
-  postedPlatform: z.string().optional(),
-  postedBy: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  status: z.enum(["Completed", "Pending"]),
+  linkOfPost: z.string(),
+  sharedInClientGroup: z.enum(["Yes", "No"]),
 });
 
 const documentOfPostSchema = z.object({
-  postStatus: z.enum(["Pending", "Live"]).default("Pending"),
-  linkOfPost: z.string().optional(),
-  currentViews: z.string().optional(),
-  likes: z.string().optional(),
-  comments: z.string().optional(),
-  shares: z.string().optional(),
-  db: z.string().optional(),
-  priority: priorityEnum,
-  status: statusEnum,
+  status: z.enum(["Completed", "Pending"]),
+  linkOfPost: z.string(),
+  currentViews: z.string(),
+  likes: z.string(),
+  comments: z.string(),
+  shares: z.string(),
 });
 
-// Only stages that have been migrated get a real schema — every other stage
-// is a real future Political module (#29-41), not yet built. Attempting to
-// advance a job sitting at an unimplemented stage is rejected by
-// politicalStage.service.ts with a clear "not yet implemented" error rather
-// than silently accepting arbitrary data.
 export const politicalStageSchemas: Partial<Record<PoliticalStageName, z.ZodTypeAny>> = {
-  JOB_CARDS: jobCardsSchema,
-  INFLUENCER_DETAILS: influencerDetailsSchema,
-  SCRIPT_WRITING: scriptWritingSchema,
-  SCRIPT_APPROVAL: scriptApprovalSchema,
-  SEND_SCRIPT: sendScriptSchema,
+  PROJECT_ORDER: projectOrderSchema,
+  JOB_CARD_PLANNING: jobCardPlanningSchema,
+  INFLUENCER_DETAILS_UPDATE: influencerDetailsUpdateSchema,
+  INFLUENCER_SCRIPT_WRITING: influencerScriptWritingSchema,
+  INFLUENCER_SCRIPT_APPROVAL: influencerScriptApprovalSchema,
+  SEND_SCRIPT_TO_INFLUENCER: sendScriptToInfluencerSchema,
+  GET_VIDEO_FROM_INFLUENCER: getVideoFromInfluencerSchema,
+  INHOUSE_SCRIPT_WRITING: inhouseScriptWritingSchema,
+  INHOUSE_SCRIPT_APPROVAL: inhouseScriptApprovalSchema,
   SHOOTING: shootingSchema,
   VOICEOVER: voiceOverSchema,
   EDITING: editingSchema,
   EDITING_QC: editingQCSchema,
   RE_EDIT: reEditSchema,
   RE_QC: reQCSchema,
-  VIDEO_CHECK: videoCheckSchema,
   DELIVERY_POSTING: deliveryPostingSchema,
   DOCUMENT_OF_POST: documentOfPostSchema,
-  // Terminal marker — a no-op schema so advanceStage() falls through to its
-  // "already completed" check instead of misreporting a completed job as
-  // "not migrated yet" (mirrors the fix applied to pmsStageSchemas.COMPLETED).
   COMPLETED: z.object({}),
 };
 

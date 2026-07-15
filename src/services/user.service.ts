@@ -45,7 +45,7 @@ export const userService = {
     const exists = await prisma.user.findUnique({ where: { username: input.username } });
     if (exists) throw Object.assign(new Error("Username already taken"), { status: 409 });
 
-    const passwordHash = await bcrypt.hash(input.password, 10);
+    const passwordHash = await bcrypt.hash(input.password, 12);
     const user = await prisma.user.create({
       data: {
         username: input.username,

@@ -7,12 +7,16 @@ export interface JwtPayload {
   role: string;
 }
 
-export const signToken = (payload: JwtPayload): string => {
+export const signAccessToken = (payload: JwtPayload): string => {
   return jwt.sign(payload, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"],
+    expiresIn: env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions["expiresIn"],
   });
 };
 
-export const verifyToken = (token: string): JwtPayload => {
+export const verifyAccessToken = (token: string): JwtPayload => {
   return jwt.verify(token, env.JWT_SECRET) as JwtPayload;
 };
+
+// Legacy exports for backwards compatibility
+export const signToken = signAccessToken;
+export const verifyToken = verifyAccessToken;

@@ -13,9 +13,8 @@ export const registerSchema = z.object({
     .regex(/^\S+$/, "No spaces allowed"),
   password: z
     .string()
-    .min(4, "Password must be at least 4 characters")
+    .min(8, "Password must be at least 8 characters")
     .max(100),
-  role: z.enum(["ADMIN", "USER"]).default("USER"),
   email: z.string().email("Invalid email").optional().nullable(),
   departmentId: z.number().int().positive().optional().nullable(),
 });
