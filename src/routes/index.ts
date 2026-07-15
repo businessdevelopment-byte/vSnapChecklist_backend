@@ -37,6 +37,7 @@ import misRecordRoutes from "./misRecord.routes";
 import misCommitmentRoutes from "./misCommitment.routes";
 import misKpiKraRoutes from "./misKpiKra.routes";
 import misTaskRoutes from "./misTask.routes";
+import permissionRoutes from "./permission.routes";
 
 const router = Router();
 
@@ -78,5 +79,6 @@ router.use("/mis-records", misRecordRoutes);
 router.use("/mis-commitments", misCommitmentRoutes);
 router.use("/mis-kpi-kra", misKpiKraRoutes);
 router.use("/mis-tasks", misTaskRoutes);
+router.use("/permissions", permissionRoutes);
 
 export default router;

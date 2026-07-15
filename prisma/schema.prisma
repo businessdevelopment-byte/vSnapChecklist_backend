@@ -38,10 +38,22 @@ model User {
   departments       UserDepartment[]
   department        Department?         @relation(fields: [departmentId], references: [id])
   employee          Employee?           @relation(fields: [employeeId], references: [id])
+  sectionPermissions SectionPermission[]
 
   @@index([username])
   @@index([departmentId])
   @@map("users")
+}
+
+model SectionPermission {
+  userId      Int
+  sectionKey  String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@id([userId, sectionKey])
+  @@index([userId])
+  @@map("section_permissions")
 }
 
 model Department {
