@@ -16,10 +16,40 @@ export const politicalStageService = {
       ];
     }
 
-    const [data, total] = await Promise.all([
-      prisma.pipelineJob.findMany({ where, skip, take, orderBy: { updatedAt: "desc" } }),
-      prisma.pipelineJob.count({ where }),
-    ]);
+    // Filter by track: INFLUENCER_* stages and INHOUSE_* stages are completely separate
+    // Shared stages (PROJECT_ORDER, JOB_CARD_PLANNING, DELIVERY_POSTING, DOCUMENT_OF_POST) serve both tracks
+    const isInfluencerStage = stage.includes("INFLUENCER");
+    const isInhouseStage = stage.includes("INHOUSE");
+    const isSharedStage = !isInfluencerStage && !isInhouseStage;
+
+    let data, total;
+
+    if (isSharedStage) {
+      // Shared stages show all jobs (no filtering)
+      [data, total] = await Promise.all([
+        prisma.pipelineJob.findMany({ where, skip, take, orderBy: { updatedAt: "desc" } }),
+        prisma.pipelineJob.count({ where }),
+      ]);
+    } else {
+      // Track-specific stages: filter by contentType from JOB_CARD_PLANNING event
+      const jobs = await prisma.pipelineJob.findMany({ where, orderBy: { updatedAt: "desc" } });
+
+      const filteredJobs = await Promise.all(
+        jobs.map(async (job) => {
+          const jobCardEvent = await prisma.pipelineStageEvent.findFirst({
+            where: { pipelineJobId: job.id, stage: "JOB_CARD_PLANNING" },
+          });
+          const contentType = (jobCardEvent?.data as any)?.contentType;
+
+          if (isInfluencerStage && contentType === "Influencer") return job;
+          if (isInhouseStage && contentType === "Inhouse/Non-Face") return job;
+          return null;
+        })
+      );
+
+      data = filteredJobs.filter(Boolean).slice(skip, skip + take);
+      total = filteredJobs.filter(Boolean).length;
+    }
 
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
@@ -41,18 +71,51 @@ export const politicalStageService = {
       };
     }
 
-    const [events, total] = await Promise.all([
-      prisma.pipelineStageEvent.findMany({
+    // Filter by track: INFLUENCER_* stages and INHOUSE_* stages are completely separate
+    const isInfluencerStage = stage.includes("INFLUENCER");
+    const isInhouseStage = stage.includes("INHOUSE");
+    const isSharedStage = !isInfluencerStage && !isInhouseStage;
+
+    let events, total;
+
+    if (isSharedStage) {
+      // Shared stages show all events (no filtering)
+      [events, total] = await Promise.all([
+        prisma.pipelineStageEvent.findMany({
+          where,
+          skip,
+          take,
+          orderBy: { createdAt: "desc" },
+          include: { pipelineJob: true },
+        }),
+        prisma.pipelineStageEvent.count({ where }),
+      ]);
+    } else {
+      // Track-specific stages: filter by contentType from JOB_CARD_PLANNING event
+      const allEvents = await prisma.pipelineStageEvent.findMany({
         where,
-        skip,
-        take,
         orderBy: { createdAt: "desc" },
         include: { pipelineJob: true },
-      }),
-      prisma.pipelineStageEvent.count({ where }),
-    ]);
+      });
 
-    const data = events.map((e) => ({
+      const filteredEvents = await Promise.all(
+        allEvents.map(async (event) => {
+          const jobCardEvent = await prisma.pipelineStageEvent.findFirst({
+            where: { pipelineJobId: event.pipelineJobId, stage: "JOB_CARD_PLANNING" },
+          });
+          const contentType = (jobCardEvent?.data as any)?.contentType;
+
+          if (isInfluencerStage && contentType === "Influencer") return event;
+          if (isInhouseStage && contentType === "Inhouse/Non-Face") return event;
+          return null;
+        })
+      );
+
+      events = filteredEvents.filter((e): e is NonNullable<typeof e> => e !== null).slice(skip, skip + take);
+      total = filteredEvents.filter((e): e is NonNullable<typeof e> => e !== null).length;
+    }
+
+    const data = (events as any[]).map((e) => ({
       id: e.id,
       stage: e.stage,
       data: e.data,

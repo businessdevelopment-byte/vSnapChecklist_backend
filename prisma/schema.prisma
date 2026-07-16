@@ -352,6 +352,162 @@ model PipelineStageEvent {
   @@map("pipeline_stage_events")
 }
 
+// HR-SS Recruitment Pipeline enums and models (Phase A foundation)
+enum HrGender {
+  MALE
+  FEMALE
+  ANY
+}
+
+enum VacancyPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum VacancyStatus {
+  NEED_MORE
+  INTERVIEWING
+  ON_HOLD
+  CLOSED
+}
+
+enum VacancyApprovalStatus {
+  PENDING
+  PENDING_HR
+  APPROVED
+  REJECTED
+}
+
+enum JobApplicationSource {
+  INTERNAL
+  EXTERNAL
+}
+
+enum JobApplicationStage {
+  APPLIED
+  FOLLOW_UP
+  INTERVIEW
+  SELECTED
+  OFFER_RELEASED
+  OFFER_ACCEPTED
+  OFFER_DECLINED
+  VERIFIED
+  HIRED
+  REJECTED
+  ON_HOLD
+  RESIGNED
+}
+
+model HrDepartment {
+  id           Int           @id @default(autoincrement())
+  name         String        @unique
+  hodName      String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  designations Designation[]
+
+  @@map("hr_departments")
+}
+
+model Designation {
+  id             Int          @id @default(autoincrement())
+  name           String
+  departmentId   Int
+  createdAt      DateTime     @default(now())
+  department     HrDepartment @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  vacancies      Vacancy[]
+  employees      Employee[]
+
+  @@index([departmentId])
+  @@map("designations")
+}
+
+model Vacancy {
+  id                     Int                    @id @default(autoincrement())
+  vacancyNumber          String                 @unique
+  shareToken             String                 @unique
+  vacancyName            String?
+  designationId          Int
+  gender                 HrGender
+  numberOfPosts          Int
+  completionDate         DateTime
+  salaryCriteria         String?
+  jobDescription         String?
+  preferredQualification String?
+  preferredLocation      String?
+  preferredExperience    String?
+  experienceRequired     Boolean                @default(false)
+  socialPlatforms        String?
+  postingLinks           Json?
+  priority               VacancyPriority        @default(MEDIUM)
+  status                 VacancyStatus          @default(NEED_MORE)
+  approvalStatus         VacancyApprovalStatus  @default(PENDING)
+  rejectionRemark        String?
+  remarks                String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  designation            Designation            @relation(fields: [designationId], references: [id])
+  jobApplications        JobApplication[]
+  employees              Employee[]
+
+  @@index([status])
+  @@index([approvalStatus])
+  @@map("vacancies")
+}
+
+model JobApplication {
+  id                       Int                   @id @default(autoincrement())
+  applicationNumber        String                @unique
+  vacancyId                Int
+  source                   JobApplicationSource  @default(EXTERNAL)
+  stage                    JobApplicationStage   @default(APPLIED)
+  nextFollowUpDate         DateTime?
+  interviewDate            DateTime?
+  interviewMode            String?
+  interviewRemark          String?
+  selectionRemark          String?
+  offeredDesignation       String?
+  offeredSalary            Decimal?              @db.Decimal(12, 2)
+  offeredBaseSalary        Decimal?              @db.Decimal(12, 2)
+  offeredAllowanceSalary   Decimal?              @db.Decimal(12, 2)
+  offeredJoiningDate       DateTime?
+  offerStatus              String?
+  offerRemark              String?
+  documentChecklist        Json?
+  documentsVerified        Boolean               @default(false)
+  verificationRemark       String?
+  candidateName            String
+  candidateDob             DateTime?
+  candidatePhone           String
+  candidateEmail           String?
+  maritalStatus            String?
+  presentAddress           String?
+  aadharNo                 String?
+  previousCompany          String?
+  previousCompanyNoticePeriod String?
+  jobExperience            String?
+  lastSalary               Decimal?              @db.Decimal(12, 2)
+  previousPosition         String?
+  reasonForLeaving         String?
+  lastEmployerMobile       String?
+  referenceBy              String?
+  candidatePhoto           String?
+  candidateResume          String?
+  salarySlip               String?
+  experienceLetter         String?
+  relievingLetter          String?
+  remarks                  String?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  vacancy                  Vacancy               @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  employee                 Employee?
+
+  @@index([vacancyId])
+  @@index([stage])
+  @@map("job_applications")
+}
+
 // HR employee master roster (Module #42). Source (Master/src/pages/HR/Employee.jsx)
 // has no creation form — only a read-only "joining" listing backed by mock data
 // (`EMPLOYEES` in hrDummyData.js) — so `create()` is new functionality, per the
@@ -363,12 +519,19 @@ model PipelineStageEvent {
 model Employee {
   id                  Int                  @id @default(autoincrement())
   joiningNo           String               @unique
+  // HR-SS: separate employee code field (in addition to joiningNo for backward compat)
+  employeeCode        String?              @unique
   candidateName       String
   fatherName          String?
   dateOfJoining       DateTime             @db.Date
   joiningPlace        String?
-  designation         String
+  designation         String               // Master: string designation
+  // HR-SS: FK to Designation (optional, for future use)
+  designationId       Int?
   salary              Decimal              @db.Decimal(12, 2)
+  // HR-SS: split salary fields
+  baseSalary          Decimal?             @db.Decimal(12, 2)
+  allowanceSalary     Decimal?             @db.Decimal(12, 2)
   mobileNo            String
   familyMobileNo      String?
   relationWithFamily  String?
@@ -378,8 +541,17 @@ model Employee {
   gender              String?
   aadharNo            String?
   currentAddress      String?
+  // HR-SS: additional address fields
+  presentAddress      String?              // HR-SS: same as currentAddress but separate field
+  aadharAddress       String?              // HR-SS: address from aadhar
   addressAsPerAadhar  String?
   bodAsPerAadhar      DateTime?            @db.Date
+  // HR-SS: date of birth (separate from bodAsPerAadhar which comes from aadhar)
+  dateOfBirth         DateTime?            @db.Date
+  // HR-SS: marital status
+  maritalStatus       String?
+  // HR-SS: employment type
+  employmentType      String?
   pfEligible          String?
   esicEligible        String?
   accountNo           String?
@@ -388,6 +560,9 @@ model Employee {
   paymentMode         String?
   modeOfAttendance    String?
   qualification       String?
+  // HR-SS: vacancy linkage (for recruitment pipeline)
+  vacancyId           Int?
+  jobApplicationId    Int?                 @unique
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   onboardingChecklist OnboardingChecklist?
@@ -397,8 +572,12 @@ model Employee {
   dailyAttendance     DailyAttendance[]
   linkedUser          User?
   payrollEntries      PayrollEntry[]
+  designationRef      Designation?         @relation(fields: [designationId], references: [id])
+  vacancyRef          Vacancy?             @relation(fields: [vacancyId], references: [id])
+  jobApplication      JobApplication?      @relation(fields: [jobApplicationId], references: [id])
 
   @@index([status])
+  @@index([employeeCode])
   @@map("employees")
 }
 

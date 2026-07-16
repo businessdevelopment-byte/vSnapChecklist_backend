@@ -9,7 +9,7 @@ const COOKIE_OPTS: CookieOptions = {
   httpOnly: true,
   secure: env.NODE_ENV === "production",
   sameSite: env.NODE_ENV === "production" ? "none" : "lax",
-  path: "/api/auth",
+  path: "/",
   maxAge: env.REFRESH_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
 };
 
@@ -73,7 +73,7 @@ export const authController = {
     try {
       const refreshToken = req.cookies?.refreshToken;
       await authService.logout(refreshToken);
-      res.clearCookie("refreshToken", { path: "/api/auth" });
+      res.clearCookie("refreshToken", { path: "/" });
       sendSuccess(res, null, "Logged out successfully");
     } catch (err: unknown) {
       const error = err as { status?: number; message?: string };
