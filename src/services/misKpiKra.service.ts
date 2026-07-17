@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
-import { resolveOwnMisName } from "./misRecord.service";
 import type {
   MisKpiKraQueryInput,
   CreateMisKpiKraInput,
@@ -26,11 +25,10 @@ export const misKpiKraService = {
     if (query.department) {
       conditions.push({ department: query.department });
     }
-    // Mirrors misRecord.service.ts's own-name scoping — KPI/KRA data is
-    // per-employee performance data and shouldn't be readable by every USER.
+    // KPI/KRA data is per-employee performance data and shouldn't be
+    // readable by every USER — only the entries assigned to them.
     if (requester.role !== "ADMIN") {
-      const ownName = await resolveOwnMisName(requester.userId);
-      conditions.push({ name: { equals: ownName, mode: "insensitive" } });
+      conditions.push({ assignedUserId: requester.userId });
     }
     const where: Prisma.MisKpiKraEntryWhereInput = conditions.length ? { AND: conditions } : {};
 

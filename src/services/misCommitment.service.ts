@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
-import { resolveOwnMisName } from "./misRecord.service";
 import type {
   MisCommitmentQueryInput,
   SubmitMisCommitmentsInput,
@@ -22,8 +21,7 @@ export const misCommitmentService = {
       conditions.push({ dateStart: new Date(query.dateStart) });
     }
     if (requester.role !== "ADMIN") {
-      const ownName = await resolveOwnMisName(requester.userId);
-      conditions.push({ name: { equals: ownName, mode: "insensitive" } });
+      conditions.push({ assignedUserId: requester.userId });
     }
     const where: Prisma.MisArchivedCommitmentWhereInput = conditions.length
       ? { AND: conditions }
@@ -51,18 +49,15 @@ export const misCommitmentService = {
   // like HistoryCommitment.jsx:23-24. The record's own nextWeek* fields are
   // updated too, mirroring how the source's "For Records" sheet columns Q-S
   // reflected the latest archived values. Non-admins may only submit rows
-  // matching their own resolved name (source: hod/user submitted within the
-  // rows visible to them).
+  // assigned to them (record.assignedUserId === requester.userId).
   async submit(input: SubmitMisCommitmentsInput, requester: { userId: number; role: string }) {
-    const ownName = requester.role !== "ADMIN" ? await resolveOwnMisName(requester.userId) : null;
-
     const records = await Promise.all(
       input.items.map(async (item) => {
         const record = await prisma.misRecord.findUnique({ where: { id: item.recordId } });
         if (!record) {
           throw Object.assign(new Error(`MIS record ${item.recordId} not found`), { status: 404 });
         }
-        if (ownName !== null && record.name.toLowerCase() !== ownName.toLowerCase()) {
+        if (requester.role !== "ADMIN" && record.assignedUserId !== requester.userId) {
           throw Object.assign(
             new Error("You can only submit a commitment for your own record"),
             { status: 403 }
@@ -91,6 +86,7 @@ export const misCommitmentService = {
           nextWeekPlannedNotDone: item.nextWeekPlannedNotDone ?? null,
           nextWeekPlannedNotDoneOnTime: item.nextWeekPlannedNotDoneOnTime ?? null,
           nextWeekCommitment: item.nextWeekCommitment ?? null,
+          assignedUserId: record.assignedUserId,
         };
 
         await tx.misArchivedCommitment.upsert({

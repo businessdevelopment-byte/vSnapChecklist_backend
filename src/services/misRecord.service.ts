@@ -8,19 +8,8 @@ import type {
 } from "../schemas/misRecord.schemas";
 
 // Source role model was admin/superadmin (all rows) / hod (self + reportees) /
-// user (self only), matched by display name (Master/src/pages/MIS/Dashboard.jsx:383-400).
-// This backend has only ADMIN/USER, so ADMIN keeps see-all and USER keeps
-// self-only — the "own" name resolves through the User.employeeId link to
-// Employee.candidateName, with username as fallback, because MisRecord carries
-// plain name strings (no FK). See docs/migration/DECISIONS.md.
-export const resolveOwnMisName = async (userId: number): Promise<string> => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { employee: { select: { candidateName: true } } },
-  });
-  return user?.employee?.candidateName ?? user?.username ?? "";
-};
-
+// user (self only). This backend has only ADMIN/USER, so ADMIN keeps
+// see-all and USER keeps self-only, scoped via the assignedUserId FK.
 export const misRecordService = {
   async list(query: MisRecordQueryInput, requester: { userId: number; role: string }) {
     const { skip, take, page, limit } = getPaginationParams(query);
@@ -33,8 +22,7 @@ export const misRecordService = {
       conditions.push({ designation: query.designation });
     }
     if (requester.role !== "ADMIN") {
-      const ownName = await resolveOwnMisName(requester.userId);
-      conditions.push({ name: { equals: ownName, mode: "insensitive" } });
+      conditions.push({ assignedUserId: requester.userId });
     }
     const where: Prisma.MisRecordWhereInput = conditions.length ? { AND: conditions } : {};
 

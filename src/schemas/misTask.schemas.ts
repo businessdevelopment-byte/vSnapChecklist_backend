@@ -21,10 +21,12 @@ export const createMisTaskSchema = z.object({
   taskName: z.string().min(1, "Task name is required"),
   personName: z.string().min(1, "Person name is required"),
   description: z.string().optional(),
+  section: z.string().optional(),
   dueDate: z.string().optional(),
   status: misTaskStatusSchema.default("pending"),
   priority: misTaskPrioritySchema.default("medium"),
   todayTask: z.string().optional(),
+  assignedUserId: z.number().int().positive("Assigned user ID is required"),
 });
 
 export type CreateMisTaskInput = z.infer<typeof createMisTaskSchema>;

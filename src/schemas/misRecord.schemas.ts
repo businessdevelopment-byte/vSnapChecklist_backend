@@ -25,6 +25,7 @@ export const createMisRecordSchema = z.object({
   plannedWorkNotDone: z.coerce.number().int().min(0).max(100).default(0),
   plannedWorkNotDoneOnTime: z.coerce.number().int().min(0).max(100).default(0),
   commitment: z.string().optional(),
+  assignedUserId: z.coerce.number().int().positive(),
 });
 
 export type CreateMisRecordInput = z.infer<typeof createMisRecordSchema>;

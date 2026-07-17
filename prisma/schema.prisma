@@ -40,6 +40,11 @@ model User {
   employee          Employee?           @relation(fields: [employeeId], references: [id])
   sectionPermissions SectionPermission[]
   refreshTokens     RefreshToken[]
+  misTasks          MisTask[]           @relation("MisTaskAssignedTo")
+  misTaskHistories  MisTaskHistory[]    @relation("MisTaskHistorySubmittedBy")
+  misRecords        MisRecord[]         @relation("MisRecordAssignedTo")
+  misKpiKraEntries  MisKpiKraEntry[]    @relation("MisKpiKraAssignedTo")
+  misArchivedCommitments MisArchivedCommitment[] @relation("MisArchivedCommitmentAssignedTo")
 
   @@index([username])
   @@index([departmentId])
@@ -1019,11 +1024,15 @@ model MisRecord {
   nextWeekPlannedNotDone       Int?
   nextWeekPlannedNotDoneOnTime Int?
   nextWeekCommitment           String?
+  assignedUserId               Int
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 
+  assignedUser                 User     @relation("MisRecordAssignedTo", fields: [assignedUserId], references: [id])
+
   @@index([name])
   @@index([dateStart])
+  @@index([assignedUserId])
   @@map("mis_records")
 }
 
@@ -1056,11 +1065,15 @@ model MisArchivedCommitment {
   nextWeekPlannedNotDone       Int?
   nextWeekPlannedNotDoneOnTime Int?
   nextWeekCommitment           String?
+  assignedUserId               Int
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 
+  assignedUser                 User     @relation("MisArchivedCommitmentAssignedTo", fields: [assignedUserId], references: [id])
+
   @@unique([name, dateStart])
   @@index([dateStart])
+  @@index([assignedUserId])
   @@map("mis_archived_commitments")
 }
 
@@ -1072,20 +1085,24 @@ model MisArchivedCommitment {
 // of kpi/kra/achieved/period/remarks exist on the weekly-record shape — so
 // this is its own model; see docs/migration/DECISIONS.md.
 model MisKpiKraEntry {
-  id         Int      @id @default(autoincrement())
-  name       String
-  department String?
-  kpi        String
-  kra        String
-  target     Int
-  achieved   Int
-  percentage Int
-  period     String?
-  remarks    String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  name           String
+  department     String?
+  kpi            String
+  kra            String
+  target         Int
+  achieved       Int
+  percentage     Int
+  period         String?
+  remarks        String?
+  assignedUserId Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  assignedUser   User     @relation("MisKpiKraAssignedTo", fields: [assignedUserId], references: [id])
 
   @@index([department])
+  @@index([assignedUserId])
   @@map("mis_kpi_kra_entries")
 }
 
@@ -1098,21 +1115,44 @@ model MisKpiKraEntry {
 // the source's business terminology verbatim (validated by Zod at the API
 // boundary), following the `Employee.status` string precedent.
 model MisTask {
-  id          Int       @id @default(autoincrement())
-  fmsName     String?
-  taskName    String
-  personName  String
-  description String?
-  dueDate     DateTime? @db.Date
-  status      String    @default("pending")
-  priority    String    @default("medium")
-  todayTask   String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id            Int              @id @default(autoincrement())
+  fmsName       String?
+  taskName      String
+  personName    String
+  description   String?
+  section       String?
+  dueDate       DateTime?        @db.Date
+  status        String           @default("pending")
+  priority      String           @default("medium")
+  todayTask     String?
+  assignedUserId Int
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  assignedUser  User             @relation("MisTaskAssignedTo", fields: [assignedUserId], references: [id])
+  history       MisTaskHistory[]
 
   @@index([status])
   @@index([dueDate])
+  @@index([assignedUserId])
+  @@index([section])
   @@map("mis_tasks")
+}
+
+model MisTaskHistory {
+  id              Int    @id @default(autoincrement())
+  taskId          Int
+  submittedByUserId Int
+  completedDate   DateTime @db.Date
+  remarks         String?
+  createdAt       DateTime @default(now())
+
+  task            MisTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  submittedBy     User    @relation("MisTaskHistorySubmittedBy", fields: [submittedByUserId], references: [id])
+
+  @@index([taskId])
+  @@index([submittedByUserId])
+  @@map("mis_task_history")
 }
 
 enum Role {

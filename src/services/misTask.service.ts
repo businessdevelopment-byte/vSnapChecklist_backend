@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
-import { resolveOwnMisName } from "./misRecord.service";
 import type {
   MisTaskQueryInput,
   CreateMisTaskInput,
@@ -30,11 +29,9 @@ export const misTaskService = {
     if (query.personName) {
       conditions.push({ personName: { equals: query.personName, mode: "insensitive" } });
     }
-    // Mirrors misRecord.service.ts's own-name scoping — a non-admin should
-    // only see their own tasks, not the whole team's.
+    // A non-admin should only see tasks assigned to them, not the whole team's.
     if (requester.role !== "ADMIN") {
-      const ownName = await resolveOwnMisName(requester.userId);
-      conditions.push({ personName: { equals: ownName, mode: "insensitive" } });
+      conditions.push({ assignedUserId: requester.userId });
     }
     const where: Prisma.MisTaskWhereInput = conditions.length ? { AND: conditions } : {};
 

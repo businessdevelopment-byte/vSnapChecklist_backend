@@ -19,6 +19,7 @@ export const createMisKpiKraSchema = z.object({
   percentage: z.coerce.number().int().min(0).max(100),
   period: z.string().optional(),
   remarks: z.string().optional(),
+  assignedUserId: z.coerce.number().int().positive(),
 });
 
 export type CreateMisKpiKraInput = z.infer<typeof createMisKpiKraSchema>;
