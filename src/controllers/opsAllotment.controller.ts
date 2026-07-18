@@ -18,7 +18,7 @@ export const opsAllotmentController = {
   async apply(req: Request, res: Response): Promise<void> {
     try {
       const { fromDate, toDate } = opsAllotmentDateRangeSchema.parse(req.body);
-      const result = await opsAllotmentService.applyCreatedBetween(fromDate, toDate);
+      const result = await opsAllotmentService.applyCreatedBetween(fromDate, toDate, req.user!.userId);
       sendSuccess(res, result, "Ops allotments applied");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

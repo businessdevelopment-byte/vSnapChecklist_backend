@@ -29,7 +29,7 @@ export const followUpController = {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createFollowUpSchema.parse(req.body);
-      const followUp = await followUpService.create(input);
+      const followUp = await followUpService.create(input, req.user!.userId);
       sendSuccess(res, followUp, "Follow-up saved", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

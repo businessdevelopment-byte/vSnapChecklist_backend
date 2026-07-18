@@ -45,7 +45,7 @@ export const politicalStageController = {
     try {
       const jobId = Number(req.params.id);
       const { data } = advanceStageBodySchema.parse(req.body);
-      const job = await politicalStageService.advanceStage(jobId, data);
+      const job = await politicalStageService.advanceStage(jobId, data, req.user!.userId);
       sendSuccess(res, job, "Job advanced to next stage");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

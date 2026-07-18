@@ -18,7 +18,7 @@ export const photographerAllotmentController = {
   async apply(req: Request, res: Response): Promise<void> {
     try {
       const { fromDate, toDate } = photographerAllotmentDateRangeSchema.parse(req.body);
-      const result = await photographerAllotmentService.applyCreatedBetween(fromDate, toDate);
+      const result = await photographerAllotmentService.applyCreatedBetween(fromDate, toDate, req.user!.userId);
       sendSuccess(res, result, "Photographer allotments applied");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

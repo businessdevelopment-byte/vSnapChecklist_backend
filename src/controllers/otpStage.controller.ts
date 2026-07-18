@@ -40,7 +40,7 @@ export const otpStageController = {
     try {
       const jobId = Number(req.params.id);
       const { data } = advanceStageSchema.parse(req.body);
-      const job = await otpStageService.advanceStage(jobId, data);
+      const job = await otpStageService.advanceStage(jobId, data, req.user!.userId);
       sendSuccess(res, job, "Order advanced to next stage");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

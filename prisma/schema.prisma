@@ -16,30 +16,38 @@ datasource db {
 // admin action (PATCH /api/users/:id/employee, mirroring the existing
 // updateDepartment endpoint's shape) — see docs/migration/DECISIONS.md.
 model User {
-  id                Int                 @id @default(autoincrement())
-  username          String              @unique
-  passwordHash      String
-  email             String?             @unique
-  role              Role                @default(USER)
-  status            UserStatus          @default(ACTIVE)
-  departmentId      Int?
-  employeeId        Int?                @unique
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  attendanceLogs    AttendanceLog[]
-  checklistEntries  ChecklistEntry[]    @relation("EntryAssignedTo")
-  transferredTo     ChecklistEntry[]    @relation("EntryTransferredTo")
-  delegationHistory DelegationHistory[] @relation("HistorySubmittedBy")
-  delegationTasks   DelegationTask[]    @relation("DelegationAssignedTo")
-  templateTasks     TaskTemplate[]      @relation("TemplateAssignedTo")
-  transfersFrom     TaskTransferLog[]   @relation("TransferFrom")
-  transfersTo       TaskTransferLog[]   @relation("TransferTo")
-  transferredBy     TaskTransferLog[]   @relation("TransferBy")
-  departments       UserDepartment[]
-  department        Department?         @relation(fields: [departmentId], references: [id])
-  employee          Employee?           @relation(fields: [employeeId], references: [id])
-  sectionPermissions SectionPermission[]
-  refreshTokens     RefreshToken[]
+  id                       Int                  @id @default(autoincrement())
+  username                 String               @unique
+  passwordHash             String
+  email                    String?              @unique
+  role                     Role                 @default(USER)
+  status                   UserStatus           @default(ACTIVE)
+  departmentId             Int?
+  employeeId               Int?                 @unique
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  attendanceLogs           AttendanceLog[]
+  checklistEntries         ChecklistEntry[]     @relation("EntryAssignedTo")
+  transferredTo            ChecklistEntry[]     @relation("EntryTransferredTo")
+  delegationHistory        DelegationHistory[]  @relation("HistorySubmittedBy")
+  delegationTasks          DelegationTask[]     @relation("DelegationAssignedTo")
+  templateTasks            TaskTemplate[]       @relation("TemplateAssignedTo")
+  transfersFrom            TaskTransferLog[]    @relation("TransferFrom")
+  transfersTo              TaskTransferLog[]    @relation("TransferTo")
+  transferredBy            TaskTransferLog[]    @relation("TransferBy")
+  departments              UserDepartment[]
+  department               Department?          @relation(fields: [departmentId], references: [id])
+  employee                 Employee?            @relation(fields: [employeeId], references: [id])
+  sectionPermissions       SectionPermission[]
+  refreshTokens            RefreshToken[]
+  misTargets               MisWeeklyTarget[]    @relation("MisTargetForUser")
+  misTargetsSet            MisWeeklyTarget[]    @relation("MisTargetSetBy")
+  otpStageEventsActed      OtpStageEvent[]      @relation("OtpStageEventActor")
+  pipelineStageEventsActed PipelineStageEvent[] @relation("PipelineStageEventActor")
+  indentsCreated           Indent[]             @relation("IndentCreatedBy")
+  enquiriesCreated         Enquiry[]            @relation("EnquiryCreatedBy")
+  followUpsCreated         FollowUp[]           @relation("FollowUpCreatedBy")
+  jobApplicationsCreated   JobApplication[]     @relation("JobApplicationCreatedBy")
 
   @@index([username])
   @@index([departmentId])
@@ -47,10 +55,10 @@ model User {
 }
 
 model SectionPermission {
-  userId      Int
-  sectionKey  String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
+  userId     Int
+  sectionKey String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 
   @@id([userId, sectionKey])
   @@index([userId])
@@ -58,19 +66,19 @@ model SectionPermission {
 }
 
 model RefreshToken {
-  id                Int       @id @default(autoincrement())
+  id                Int           @id @default(autoincrement())
   userId            Int
-  tokenHash         String    @unique
+  tokenHash         String        @unique
   family            String
   expiresAt         DateTime
   revokedAt         DateTime?
-  replacedByTokenId Int?      @unique
+  replacedByTokenId Int?          @unique
   ipAddress         String?
   userAgent         String?
-  createdAt         DateTime  @default(now())
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  replacedBy   RefreshToken? @relation("TokenRotation", fields: [replacedByTokenId], references: [id], onDelete: SetNull)
-  replacedFrom RefreshToken? @relation("TokenRotation")
+  createdAt         DateTime      @default(now())
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy        RefreshToken? @relation("TokenRotation", fields: [replacedByTokenId], references: [id], onDelete: SetNull)
+  replacedFrom      RefreshToken? @relation("TokenRotation")
 
   @@index([userId])
   @@index([family])
@@ -283,15 +291,22 @@ model OtpJob {
 }
 
 model OtpStageEvent {
-  id        Int         @id @default(autoincrement())
-  otpJobId  Int
-  stage     OtpJobStage
-  data      Json
-  createdAt DateTime    @default(now())
-  otpJob    OtpJob      @relation(fields: [otpJobId], references: [id], onDelete: Cascade)
+  id          Int         @id @default(autoincrement())
+  otpJobId    Int
+  stage       OtpJobStage
+  data        Json
+  // Who performed this stage advance — captured server-side from the
+  // authenticated session at advanceStage() time, never client-suppliable.
+  // Nullable because events created before this field existed have no actor
+  // to backfill. Powers MIS's Order To Payment work-volume calculation.
+  actorUserId Int?
+  createdAt   DateTime    @default(now())
+  otpJob      OtpJob      @relation(fields: [otpJobId], references: [id], onDelete: Cascade)
+  actor       User?       @relation("OtpStageEventActor", fields: [actorUserId], references: [id])
 
   @@index([otpJobId])
   @@index([stage])
+  @@index([actorUserId, createdAt])
   @@map("otp_stage_events")
 }
 
@@ -344,11 +359,17 @@ model PipelineStageEvent {
   pipelineJobId Int
   stage         String
   data          Json
+  // Who performed this stage advance — same actor-capture convention as
+  // OtpStageEvent.actorUserId; shared by both PMS and Political since they
+  // share this table (discriminated via pipelineJob.pipelineType).
+  actorUserId   Int?
   createdAt     DateTime    @default(now())
   pipelineJob   PipelineJob @relation(fields: [pipelineJobId], references: [id], onDelete: Cascade)
+  actor         User?       @relation("PipelineStageEventActor", fields: [actorUserId], references: [id])
 
   @@index([pipelineJobId])
   @@index([stage])
+  @@index([actorUserId, createdAt])
   @@map("pipeline_stage_events")
 }
 
@@ -411,22 +432,22 @@ model HrDepartment {
 }
 
 model Designation {
-  id             Int          @id @default(autoincrement())
-  name           String
-  departmentId   Int
-  createdAt      DateTime     @default(now())
-  department     HrDepartment @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  vacancies      Vacancy[]
-  employees      Employee[]
+  id           Int          @id @default(autoincrement())
+  name         String
+  departmentId Int
+  createdAt    DateTime     @default(now())
+  department   HrDepartment @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  vacancies    Vacancy[]
+  employees    Employee[]
 
   @@index([departmentId])
   @@map("designations")
 }
 
 model Vacancy {
-  id                     Int                    @id @default(autoincrement())
-  vacancyNumber          String                 @unique
-  shareToken             String                 @unique
+  id                     Int                   @id @default(autoincrement())
+  vacancyNumber          String                @unique
+  shareToken             String                @unique
   vacancyName            String?
   designationId          Int
   gender                 HrGender
@@ -437,17 +458,17 @@ model Vacancy {
   preferredQualification String?
   preferredLocation      String?
   preferredExperience    String?
-  experienceRequired     Boolean                @default(false)
+  experienceRequired     Boolean               @default(false)
   socialPlatforms        String?
   postingLinks           Json?
-  priority               VacancyPriority        @default(MEDIUM)
-  status                 VacancyStatus          @default(NEED_MORE)
-  approvalStatus         VacancyApprovalStatus  @default(PENDING)
+  priority               VacancyPriority       @default(MEDIUM)
+  status                 VacancyStatus         @default(NEED_MORE)
+  approvalStatus         VacancyApprovalStatus @default(PENDING)
   rejectionRemark        String?
   remarks                String?
-  createdAt              DateTime               @default(now())
-  updatedAt              DateTime               @updatedAt
-  designation            Designation            @relation(fields: [designationId], references: [id])
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  designation            Designation           @relation(fields: [designationId], references: [id])
   jobApplications        JobApplication[]
   employees              Employee[]
 
@@ -457,54 +478,61 @@ model Vacancy {
 }
 
 model JobApplication {
-  id                       Int                   @id @default(autoincrement())
-  applicationNumber        String                @unique
-  vacancyId                Int
-  source                   JobApplicationSource  @default(EXTERNAL)
-  stage                    JobApplicationStage   @default(APPLIED)
-  nextFollowUpDate         DateTime?
-  interviewDate            DateTime?
-  interviewMode            String?
-  interviewRemark          String?
-  selectionRemark          String?
-  offeredDesignation       String?
-  offeredSalary            Decimal?              @db.Decimal(12, 2)
-  offeredBaseSalary        Decimal?              @db.Decimal(12, 2)
-  offeredAllowanceSalary   Decimal?              @db.Decimal(12, 2)
-  offeredJoiningDate       DateTime?
-  offerStatus              String?
-  offerRemark              String?
-  documentChecklist        Json?
-  documentsVerified        Boolean               @default(false)
-  verificationRemark       String?
-  candidateName            String
-  candidateDob             DateTime?
-  candidatePhone           String
-  candidateEmail           String?
-  maritalStatus            String?
-  presentAddress           String?
-  aadharNo                 String?
-  previousCompany          String?
+  id                          Int                  @id @default(autoincrement())
+  applicationNumber           String               @unique
+  vacancyId                   Int
+  source                      JobApplicationSource @default(EXTERNAL)
+  stage                       JobApplicationStage  @default(APPLIED)
+  nextFollowUpDate            DateTime?
+  interviewDate               DateTime?
+  interviewMode               String?
+  interviewRemark             String?
+  selectionRemark             String?
+  offeredDesignation          String?
+  offeredSalary               Decimal?             @db.Decimal(12, 2)
+  offeredBaseSalary           Decimal?             @db.Decimal(12, 2)
+  offeredAllowanceSalary      Decimal?             @db.Decimal(12, 2)
+  offeredJoiningDate          DateTime?
+  offerStatus                 String?
+  offerRemark                 String?
+  documentChecklist           Json?
+  documentsVerified           Boolean              @default(false)
+  verificationRemark          String?
+  candidateName               String
+  candidateDob                DateTime?
+  candidatePhone              String
+  candidateEmail              String?
+  maritalStatus               String?
+  presentAddress              String?
+  aadharNo                    String?
+  previousCompany             String?
   previousCompanyNoticePeriod String?
-  jobExperience            String?
-  lastSalary               Decimal?              @db.Decimal(12, 2)
-  previousPosition         String?
-  reasonForLeaving         String?
-  lastEmployerMobile       String?
-  referenceBy              String?
-  candidatePhoto           String?
-  candidateResume          String?
-  salarySlip               String?
-  experienceLetter         String?
-  relievingLetter          String?
-  remarks                  String?
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
-  vacancy                  Vacancy               @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
-  employee                 Employee?
+  jobExperience               String?
+  lastSalary                  Decimal?             @db.Decimal(12, 2)
+  previousPosition            String?
+  reasonForLeaving            String?
+  lastEmployerMobile          String?
+  referenceBy                 String?
+  candidatePhoto              String?
+  candidateResume             String?
+  salarySlip                  String?
+  experienceLetter            String?
+  relievingLetter             String?
+  remarks                     String?
+  // Who logged this application — same actor-capture convention as the
+  // other HR models above. JobApplication has no stage-advance endpoint
+  // today (only create/list/getById), so this only ever reflects who
+  // created the record, not who progressed it through the funnel.
+  createdByUserId             Int?
+  createdAt                   DateTime             @default(now())
+  updatedAt                   DateTime             @updatedAt
+  vacancy                     Vacancy              @relation(fields: [vacancyId], references: [id], onDelete: Cascade)
+  employee                    Employee?
+  createdBy                   User?                @relation("JobApplicationCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([vacancyId])
   @@index([stage])
+  @@index([createdByUserId, createdAt])
   @@map("job_applications")
 }
 
@@ -525,7 +553,7 @@ model Employee {
   fatherName          String?
   dateOfJoining       DateTime             @db.Date
   joiningPlace        String?
-  designation         String               // Master: string designation
+  designation         String // Master: string designation
   // HR-SS: FK to Designation (optional, for future use)
   designationId       Int?
   salary              Decimal              @db.Decimal(12, 2)
@@ -542,8 +570,8 @@ model Employee {
   aadharNo            String?
   currentAddress      String?
   // HR-SS: additional address fields
-  presentAddress      String?              // HR-SS: same as currentAddress but separate field
-  aadharAddress       String?              // HR-SS: address from aadhar
+  presentAddress      String? // HR-SS: same as currentAddress but separate field
+  aadharAddress       String? // HR-SS: address from aadhar
   addressAsPerAadhar  String?
   bodAsPerAadhar      DateTime?            @db.Date
   // HR-SS: date of birth (separate from bodAsPerAadhar which comes from aadhar)
@@ -817,36 +845,6 @@ model PayrollEntry {
   @@map("payroll_entries")
 }
 
-// HR MIS work-tracking report (Module #57). Source (Master/src/pages/HR/
-// MisReport.jsx) reads a flat `MIS_REPORT_DATA` array — unlike every other
-// HR module built so far, its rows carry a plain `name`/`department` string
-// pair with no employee code/ID field anywhere (`hrDummyData.js`'s own rows
-// have no `employeeId`/`joiningNo`), so there's no evidenced FK relationship
-// to `Employee` to port — inventing one would be assuming a link the source
-// never establishes. `department` is likewise a plain string, not linked to
-// the existing `Department` model, for the same reason `Employee.companyName`
-// wasn't linked to it either (Module #42's still-open question) — see
-// docs/migration/DECISIONS.md. Read-only in source (search + a non-functional
-// "Export" button, no `onClick` — not ported, matching the Attendance/Payroll
-// modules' established precedent); a `POST` endpoint exists on the backend
-// only for eventual real data-ingestion, same as #51/#52.
-model MisReportEntry {
-  id             Int      @id @default(autoincrement())
-  name           String
-  department     String
-  dateStart      DateTime @db.Date
-  dateEnd        DateTime @db.Date
-  target         Int
-  actualWorkDone Int
-  workDone       Int
-  workDoneOnTime Int
-  totalWorkDone  Int
-  weekPending    Int
-  createdAt      DateTime @default(now())
-
-  @@map("mis_report_entries")
-}
-
 // HR company events calendar (Module #59, last HR module). Source
 // (Master/src/pages/HR/CompanyCalendar.jsx) is a month-grid calendar of
 // company events (meetings, holidays, trainings, reviews, general events)
@@ -878,20 +876,26 @@ model CompanyCalendarEvent {
 // ported as-is, not a new addition. `status` always starts "Open" on create;
 // there is no "close"/status-change action anywhere in the source.
 model Indent {
-  id             Int       @id @default(autoincrement())
-  indentNumber   String    @unique
-  post           String
-  gender         String    @default("Male")
-  prefer         String    @default("Fresher")
-  noOfPost       Int
-  completionDate DateTime  @db.Date
-  socialSite     String    @default("LinkedIn")
-  status         String    @default("Open")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  enquiries      Enquiry[]
+  id              Int       @id @default(autoincrement())
+  indentNumber    String    @unique
+  post            String
+  gender          String    @default("Male")
+  prefer          String    @default("Fresher")
+  noOfPost        Int
+  completionDate  DateTime  @db.Date
+  socialSite      String    @default("LinkedIn")
+  status          String    @default("Open")
+  // Who raised this indent — captured server-side at create() time. Nullable
+  // because rows created before this field existed have no actor to
+  // backfill. Powers MIS's HR work-volume calculation.
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  enquiries       Enquiry[]
+  createdBy       User?     @relation("IndentCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([status])
+  @@index([createdByUserId, createdAt])
   @@map("indents")
 }
 
@@ -922,13 +926,17 @@ model Enquiry {
   presentAddress     String?
   aadharNo           String?
   status             String     @default("Pending")
+  // Who logged this enquiry — same actor-capture convention as Indent above.
+  createdByUserId    Int?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
   indent             Indent     @relation(fields: [indentId], references: [id])
   followUps          FollowUp[]
+  createdBy          User?      @relation("EnquiryCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([status])
   @@index([indentId])
+  @@index([createdByUserId, createdAt])
   @@map("enquiries")
 }
 
@@ -944,16 +952,20 @@ model Enquiry {
 // when `status` is "Call Back Later" (the source only shows that input
 // conditionally) — kept nullable rather than required.
 model FollowUp {
-  id            Int       @id @default(autoincrement())
-  enquiryId     Int
-  enquiryNo     String
-  status        String    @default("Interested")
-  candidateSays String
-  nextDate      DateTime? @db.Date
-  createdAt     DateTime  @default(now())
-  enquiry       Enquiry   @relation(fields: [enquiryId], references: [id])
+  id              Int       @id @default(autoincrement())
+  enquiryId       Int
+  enquiryNo       String
+  status          String    @default("Interested")
+  candidateSays   String
+  nextDate        DateTime? @db.Date
+  // Who logged this call — same actor-capture convention as Indent/Enquiry.
+  createdByUserId Int?
+  createdAt       DateTime  @default(now())
+  enquiry         Enquiry   @relation(fields: [enquiryId], references: [id])
+  createdBy       User?     @relation("FollowUpCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([enquiryId])
+  @@index([createdByUserId, createdAt])
   @@map("follow_ups")
 }
 
@@ -984,135 +996,48 @@ model AttendanceLog {
   @@map("attendance_logs")
 }
 
-// MIS weekly performance records (Module #63, MIS Dashboard). Source
-// (Master/src/pages/MIS/Dashboard.jsx) read these rows from the Google
-// Apps Script "For Records" sheet by numeric column index (row[2]=name,
-// row[3]=target ... row[18]=nextWeekCommitment, Dashboard.jsx:340-381);
-// the MIS data source Open Question was resolved to Postgres (see
-// docs/migration/MASTER_PLAN.md § Open Questions #4), so this model is the
-// permanent replacement for that sheet. Like `MisReportEntry` above, rows
-// carry a plain `name` string with no `Employee` FK — the source matched
-// people by display name only (Dashboard.jsx:383-400). `phone` exists
-// because the source's WhatsApp send needed a phone number and buggily used
-// `emp.email` (Dashboard.jsx:1019) while a real phone column existed in the
-// Master sheet (column B, Dashboard.jsx:260) — the migration fixes the bug
-// by storing the phone here, per the roadmap's "fix, don't port" note.
-// `commitment` fields are String because the source's commitment input
-// explicitly allows free text (Dashboard.jsx:144).
-model MisRecord {
-  id                           Int      @id @default(autoincrement())
-  name                         String
-  designation                  String?
-  phone                        String?
-  dateStart                    DateTime @db.Date
-  dateEnd                      DateTime @db.Date
-  target                       Int
-  actualWorkDone               Int
-  weeklyWorkDone               Int
-  weeklyWorkDoneOnTime         Int
-  totalWorkDone                Int
-  weekPending                  Int
-  allPendingTillDate           Int
-  plannedWorkNotDone           Int      @default(0)
-  plannedWorkNotDoneOnTime     Int      @default(0)
-  commitment                   String?
-  nextWeekPlannedNotDone       Int?
-  nextWeekPlannedNotDoneOnTime Int?
-  nextWeekCommitment           String?
-  createdAt                    DateTime @default(now())
-  updatedAt                    DateTime @updatedAt
+// MIS rebuild (2026-07-17, replacing the removed MisRecord/MisArchivedCommitment
+// system). "Actual work done" is never stored — it's always computed live from
+// each system's own tables (checklist.service.ts/delegation.service.ts's
+// existing stats methods, or the new actor-tracked event/creation rows added
+// alongside this model) for whatever week is being viewed, current or past.
+// The only thing that genuinely can't be auto-calculated is the target (a
+// goal), so that's the only thing this table stores. One row per
+// user+system+week, only created once a target is actually set for that
+// combination — see docs/migration/DECISIONS.md.
+model MisWeeklyTarget {
+  id          Int          @id @default(autoincrement())
+  userId      Int
+  systemKey   MisSystemKey
+  weekStart   DateTime     @db.Date
+  weekEnd     DateTime     @db.Date
+  // Nullable: a row may exist holding only next-week planning fields
+  // (submitted via "Submit Selection") before an admin sets its target.
+  target      Int?
+  // Manual planning fields for the week this row covers — entered the week
+  // before via the dashboard's editable next-week cells (ports the old
+  // Master "Submit Selection" flow). Actuals stay auto-calculated; these are
+  // the one thing that can't be computed: stated intent.
+  plannedNotDonePct       Int?
+  plannedNotDoneOnTimePct Int?
+  commitment              String?
+  setByUserId Int
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  user        User         @relation("MisTargetForUser", fields: [userId], references: [id])
+  setBy       User         @relation("MisTargetSetBy", fields: [setByUserId], references: [id])
 
-  @@index([name])
-  @@index([dateStart])
-  @@map("mis_records")
+  @@unique([userId, systemKey, weekStart])
+  @@index([systemKey, weekStart])
+  @@map("mis_weekly_targets")
 }
 
-// MIS archived weekly commitments (Modules #62 History Commitment + #63
-// Dashboard "Submit Selection"). Source upserted one row per employee per
-// week into the "Archived" sheet keyed by name + week start
-// (Dashboard.jsx:1054-1080, archivedMap at 282-320) — @@unique([name,
-// dateStart]) preserves that upsert semantic. The Archived sheet stored only
-// 6 columns, but the History page (HistoryCommitment.jsx:122-139) displays a
-// full 17-column snapshot (target/actual/pending + last-week + next-week
-// values), so submission snapshots the whole MisRecord here; workNotDone /
-// workNotDoneOnTime are computed as 100 - weekly done values, exactly how
-// the source derived them (HistoryCommitment.jsx:23-24). See
-// docs/migration/DECISIONS.md.
-model MisArchivedCommitment {
-  id                           Int      @id @default(autoincrement())
-  name                         String
-  dateStart                    DateTime @db.Date
-  dateEnd                      DateTime @db.Date
-  target                       Int      @default(0)
-  actualWorkDone               Int      @default(0)
-  workNotDone                  Int      @default(0)
-  workNotDoneOnTime            Int      @default(0)
-  totalWorkDone                Int      @default(0)
-  weekPending                  Int      @default(0)
-  allPendingTillDate           Int      @default(0)
-  lastWeekPlannedNotDone       Int?
-  lastWeekPlannedNotDoneOnTime Int?
-  lastWeekCommitment           String?
-  nextWeekPlannedNotDone       Int?
-  nextWeekPlannedNotDoneOnTime Int?
-  nextWeekCommitment           String?
-  createdAt                    DateTime @default(now())
-  updatedAt                    DateTime @updatedAt
-
-  @@unique([name, dateStart])
-  @@index([dateStart])
-  @@map("mis_archived_commitments")
-}
-
-// MIS KPI/KRA tracker (Module #64). Source (Master/src/pages/MIS/KpiKra.jsx)
-// is an orphaned page with a confirmed render crash (undefined `loading`,
-// unimported `Loader2`, KpiKra.jsx:45-54) — rewritten, not ported, per the
-// roadmap. Fields mirror its DUMMY_KPI row shape exactly (KpiKra.jsx:6-19).
-// The Migration Matrix's "data source: MisRecord" note doesn't hold — none
-// of kpi/kra/achieved/period/remarks exist on the weekly-record shape — so
-// this is its own model; see docs/migration/DECISIONS.md.
-model MisKpiKraEntry {
-  id         Int      @id @default(autoincrement())
-  name       String
-  department String?
-  kpi        String
-  kra        String
-  target     Int
-  achieved   Int
-  percentage Int
-  period     String?
-  remarks    String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([department])
-  @@map("mis_kpi_kra_entries")
-}
-
-// MIS tasks (Modules #65 Today Tasks + #66 Pending Tasks, plus the Dashboard
-// user-details task breakdown). Source pages both fetched the same Apps
-// Script "Tasks" sheet with conflicting index-7 readings — `todayTask` note
-// text in TodayTasks.jsx:34 vs `priority` in PendingTasks.jsx:33 — so this
-// model carries both fields. `status`/`priority` stay lowercase strings
-// ("pending"/"in-progress"/"completed", "high"/"medium"/"low") to preserve
-// the source's business terminology verbatim (validated by Zod at the API
-// boundary), following the `Employee.status` string precedent.
-model MisTask {
-  id          Int       @id @default(autoincrement())
-  fmsName     String?
-  taskName    String
-  personName  String
-  description String?
-  dueDate     DateTime? @db.Date
-  status      String    @default("pending")
-  priority    String    @default("medium")
-  todayTask   String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([status])
-  @@index([dueDate])
-  @@map("mis_tasks")
+enum MisSystemKey {
+  CHECKLIST_DELEGATION
+  ORDER_TO_PAYMENT
+  PMS
+  POLITICAL
+  HR
 }
 
 enum Role {

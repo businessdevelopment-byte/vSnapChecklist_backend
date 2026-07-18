@@ -31,7 +31,7 @@ export const photographerAllotmentService = {
   // is routed automatically the moment this runs: matched against vsnapu ->
   // straight to Final Photographer with that photographer's details; no match
   // -> Photographer Search, to be found manually there.
-  async applyCreatedBetween(fromDate: string, toDate: string) {
+  async applyCreatedBetween(fromDate: string, toDate: string, actorUserId: number) {
     const allotments = await this.fetchCreatedBetween(fromDate, toDate);
 
     const latestByJobId = new Map<string, ExternalPhotographerAllotment>();
@@ -52,14 +52,18 @@ export const photographerAllotmentService = {
     for (const job of pendingJobs) {
       const allotment = latestByJobId.get(job.jobId);
       if (allotment) {
-        await otpStageService.advanceStage(job.id, {
-          photographerAvailable: "Yes",
-          photographerName: allotment.photographerName.trim(),
-          photographerContact: allotment.mobile.trim(),
-        });
+        await otpStageService.advanceStage(
+          job.id,
+          {
+            photographerAvailable: "Yes",
+            photographerName: allotment.photographerName.trim(),
+            photographerContact: allotment.mobile.trim(),
+          },
+          actorUserId
+        );
         matched++;
       } else {
-        await otpStageService.advanceStage(job.id, { photographerAvailable: "No" });
+        await otpStageService.advanceStage(job.id, { photographerAvailable: "No" }, actorUserId);
         sentToSearch++;
       }
     }

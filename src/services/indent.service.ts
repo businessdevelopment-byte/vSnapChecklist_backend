@@ -23,7 +23,7 @@ export const indentService = {
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
 
-  async create(input: CreateIndentInput) {
+  async create(input: CreateIndentInput, createdByUserId: number) {
     const sequence = (await prisma.indent.count()) + 1;
     const indentNumber = `IND${String(sequence).padStart(3, "0")}`;
 
@@ -33,6 +33,7 @@ export const indentService = {
         indentNumber,
         completionDate: new Date(input.completionDate),
         status: "Open",
+        createdByUserId,
       } satisfies Prisma.IndentUncheckedCreateInput,
     });
   },

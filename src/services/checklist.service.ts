@@ -441,17 +441,18 @@ export const checklistService = {
     return { total, completed, pending, overdue, leave, completionRate: parseFloat(completionRate) };
   },
 
-  async getStaffStats(params?: { startDate?: Date; endDate?: Date; departmentId?: number }) {
+  async getStaffStats(params?: { startDate?: Date; endDate?: Date; departmentId?: number; userId?: number }) {
     const today = new Date();
     today.setUTCHours(23, 59, 59, 999);
 
-    const { startDate, endDate, departmentId } = params ?? {};
+    const { startDate, endDate, departmentId, userId } = params ?? {};
 
     const where: Prisma.ChecklistEntryWhereInput = {
       leaveStatus: false,
       // Only include entries belonging to ACTIVE users
       assignedUser: { status: "ACTIVE" },
       ...(departmentId ? { departmentId } : {}),
+      ...(userId != null ? { assignedUserId: userId } : {}),
       taskStartDate:
         startDate && endDate
           ? { gte: startDate, lte: endDate }
@@ -464,11 +465,15 @@ export const checklistService = {
         assignedUserId: true,
         actualDate: true,
         adminDone: true,
+        delayDays: true,
         assignedUser: { select: { username: true, email: true } },
       },
     });
 
-    const staffMap = new Map<number, { username: string; email: string; total: number; completed: number }>();
+    const staffMap = new Map<
+      number,
+      { username: string; email: string; total: number; completed: number; onTime: number }
+    >();
     for (const e of entries) {
       if (!staffMap.has(e.assignedUserId)) {
         staffMap.set(e.assignedUserId, {
@@ -476,11 +481,22 @@ export const checklistService = {
           email: e.assignedUser.email ?? "",
           total: 0,
           completed: 0,
+          onTime: 0,
         });
       }
       const s = staffMap.get(e.assignedUserId)!;
       s.total++;
-      if (e.actualDate || e.adminDone) s.completed++;
+      const isCompleted = e.actualDate || e.adminDone;
+      if (isCompleted) {
+        s.completed++;
+        // MIS on-time metric — used by mis.service.ts's Checklist & Delegation
+        // calculator. delayDays is only ever computed by submitEntry() at the
+        // same time as actualDate — markAdminDone() never sets it, so an
+        // adminDone-only completion always has delayDays === null with no
+        // real evidence of lateness. Require actualDate before crediting
+        // on-time, so those entries count as completed but not as on-time.
+        if (e.actualDate && (e.delayDays === null || e.delayDays <= 0)) s.onTime++;
+      }
     }
 
     return Array.from(staffMap.entries())
@@ -490,6 +506,7 @@ export const checklistService = {
         email: s.email,
         total: s.total,
         completed: s.completed,
+        onTime: s.onTime,
         pending: s.total - s.completed,
         progress: s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
       }))

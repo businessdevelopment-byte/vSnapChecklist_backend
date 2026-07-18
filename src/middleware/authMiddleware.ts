@@ -21,13 +21,17 @@ export const authMiddleware = (
   next: NextFunction
 ): void => {
   const authHeader = req.headers.authorization;
+  // Browser requests carry the access token as an httpOnly cookie; a Bearer
+  // header (non-browser API client) takes precedence if both are present.
+  const token =
+    authHeader && authHeader.startsWith("Bearer ")
+      ? authHeader.split(" ")[1]
+      : req.cookies?.accessToken;
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  if (!token) {
     sendError(res, "Unauthorized — missing token", 401);
     return;
   }
-
-  const token = authHeader.split(" ")[1];
 
   try {
     const payload = verifyToken(token);

@@ -126,7 +126,7 @@ export const politicalStageService = {
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
 
-  async advanceStage(jobId: number, rawData: Record<string, unknown>) {
+  async advanceStage(jobId: number, rawData: Record<string, unknown>, actorUserId: number) {
     const job = await prisma.pipelineJob.findUnique({ where: { id: jobId } });
     if (!job || job.pipelineType !== PipelineType.POLITICAL) {
       throw Object.assign(new Error("Job not found"), { status: 404 });
@@ -149,7 +149,7 @@ export const politicalStageService = {
 
     const [, updatedJob] = await prisma.$transaction([
       prisma.pipelineStageEvent.create({
-        data: { pipelineJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue },
+        data: { pipelineJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue, actorUserId },
       }),
       prisma.pipelineJob.update({ where: { id: job.id }, data: { currentStage: next } }),
     ]);

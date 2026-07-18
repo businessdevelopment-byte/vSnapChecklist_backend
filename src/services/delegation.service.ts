@@ -206,7 +206,7 @@ export const delegationService = {
     return { total, done, pending, overdue, completionRate };
   },
 
-  async getMisStaffStats(query: Pick<DelegationMisQueryInput, "startDate" | "endDate">) {
+  async getMisStaffStats(query: Pick<DelegationMisQueryInput, "startDate" | "endDate"> & { userId?: number }) {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
@@ -217,6 +217,7 @@ export const delegationService = {
         ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
       };
     }
+    if (query.userId != null) where.assignedUserId = query.userId;
 
     const tasks = await prisma.delegationTask.findMany({
       where: {
@@ -257,6 +258,28 @@ export const delegationService = {
         progress: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0,
       }))
       .sort((a, b) => b.progress - a.progress);
+  },
+
+  // MIS on-time metric — separate from getMisStaffStats because "on time"
+  // is a property of a submission (DelegationHistory.isLate), not of the
+  // task itself (DelegationTask has no due-date-vs-completion comparison).
+  async getOnTimeCounts(query: Pick<DelegationMisQueryInput, "startDate" | "endDate"> & { userId?: number }) {
+    const where: Prisma.DelegationHistoryWhereInput = {};
+    if (query.startDate || query.endDate) {
+      where.submissionDate = {
+        ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+        ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+      };
+    }
+    if (query.userId != null) where.submittedByUserId = query.userId;
+
+    const rows = await prisma.delegationHistory.groupBy({
+      by: ["submittedByUserId"],
+      where: { ...where, isLate: false },
+      _count: true,
+    });
+
+    return rows.map((r) => ({ userId: r.submittedByUserId, onTime: r._count }));
   },
 
   async getStatusCounts(userId: number | undefined, requesterRole: string, requesterId: number) {

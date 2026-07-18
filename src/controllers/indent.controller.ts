@@ -18,7 +18,7 @@ export const indentController = {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createIndentSchema.parse(req.body);
-      const indent = await indentService.create(input);
+      const indent = await indentService.create(input, req.user!.userId);
       sendSuccess(res, indent, "Indent created", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

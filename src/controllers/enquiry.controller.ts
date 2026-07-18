@@ -29,7 +29,7 @@ export const enquiryController = {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createEnquirySchema.parse(req.body);
-      const enquiry = await enquiryService.create(input);
+      const enquiry = await enquiryService.create(input, req.user!.userId);
       sendSuccess(res, enquiry, "Enquiry created", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

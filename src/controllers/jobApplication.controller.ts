@@ -18,7 +18,7 @@ export const jobApplicationController = {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createJobApplicationSchema.parse(req.body);
-      const application = await jobApplicationService.create(input);
+      const application = await jobApplicationService.create(input, req.user!.userId);
       sendSuccess(res, application, "Job application created", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
