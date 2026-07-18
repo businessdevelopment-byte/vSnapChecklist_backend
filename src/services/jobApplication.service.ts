@@ -2,7 +2,7 @@ import { prisma } from "../config/database";
 import type { CreateJobApplicationInput, ListJobApplicationInput } from "../schemas/jobApplication.schemas";
 
 export const jobApplicationService = {
-  async create(input: CreateJobApplicationInput) {
+  async create(input: CreateJobApplicationInput, createdByUserId: number) {
     // Validate vacancy exists and is approved
     const vacancy = await prisma.vacancy.findUnique({
       where: { id: input.vacancyId },
@@ -27,6 +27,7 @@ export const jobApplicationService = {
         ...input,
         applicationNumber: "", // placeholder
         stage: "APPLIED",
+        createdByUserId,
       },
       include: { vacancy: { include: { designation: true } } },
     });

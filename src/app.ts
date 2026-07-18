@@ -37,7 +37,6 @@ const LOCKED_API_PATH_PREFIXES = [
   "/api/leave-requests",
   "/api/attendance",
   "/api/payroll",
-  "/api/mis-report",
   "/api/hr-dashboard",
   "/api/company-calendar",
 ];

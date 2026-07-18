@@ -63,7 +63,7 @@ export const otpStageService = {
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
 
-  async advanceStage(jobId: number, rawData: Record<string, unknown>) {
+  async advanceStage(jobId: number, rawData: Record<string, unknown>, actorUserId: number) {
     const job = await prisma.otpJob.findUnique({ where: { id: jobId } });
     if (!job) {
       throw Object.assign(new Error("Order not found"), { status: 404 });
@@ -79,7 +79,7 @@ export const otpStageService = {
     }
 
     const stageEventCreate = prisma.otpStageEvent.create({
-      data: { otpJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue },
+      data: { otpJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue, actorUserId },
     });
     const jobUpdate = prisma.otpJob.update({ where: { id: job.id }, data: { currentStage: next } });
 

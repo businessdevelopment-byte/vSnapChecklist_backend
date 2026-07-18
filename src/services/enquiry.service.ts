@@ -45,7 +45,7 @@ export const enquiryService = {
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
 
-  async create(input: CreateEnquiryInput) {
+  async create(input: CreateEnquiryInput, createdByUserId: number) {
     const indent = await prisma.indent.findUnique({ where: { id: input.indentId } });
     if (!indent) {
       throw Object.assign(new Error("Indent not found"), { status: 404 });
@@ -64,6 +64,7 @@ export const enquiryService = {
         indentNo: indent.indentNumber,
         applyingForPost: indent.post,
         candidateDOB: input.candidateDOB ? new Date(input.candidateDOB) : undefined,
+        createdByUserId,
       } satisfies Prisma.EnquiryUncheckedCreateInput,
     });
   },

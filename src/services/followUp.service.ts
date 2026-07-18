@@ -45,7 +45,7 @@ export const followUpService = {
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
 
-  async create(input: CreateFollowUpInput) {
+  async create(input: CreateFollowUpInput, createdByUserId: number) {
     const enquiry = await prisma.enquiry.findUnique({ where: { id: input.enquiryId } });
     if (!enquiry) {
       throw Object.assign(new Error("Enquiry not found"), { status: 404 });
@@ -56,6 +56,7 @@ export const followUpService = {
         ...input,
         enquiryNo: enquiry.candidateEnquiryNo,
         nextDate: input.nextDate ? new Date(input.nextDate) : undefined,
+        createdByUserId,
       } satisfies Prisma.FollowUpUncheckedCreateInput,
     });
   },

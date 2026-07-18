@@ -25,7 +25,7 @@ export const opsAllotmentService = {
     return parseArrayLenient(externalOpsAllotmentSchema, raw, "Ops Allotments feed");
   },
 
-  async applyCreatedBetween(fromDate: string, toDate: string) {
+  async applyCreatedBetween(fromDate: string, toDate: string, actorUserId: number) {
     const allotments = await this.fetchCreatedBetween(fromDate, toDate);
 
     // A job can appear more than once (re-assignment) — keep only the latest
@@ -67,12 +67,20 @@ export const opsAllotmentService = {
 
     for (const job of assignable) {
       const allotment = latestByJobId.get(job.jobId)!;
-      await otpStageService.advanceStage(job.id, {
-        assignedMember: allotment.stakeholderName.trim(),
-        remarks: allotment.allottedByUserName?.trim()
-          ? `Assigned by ${allotment.allottedByUserName.trim()} via vsnapu`
-          : "Assigned via vsnapu",
-      });
+      // actorUserId here is whoever ran this sync, not the real vsnapu-side
+      // stakeholder named in allotment.stakeholderName (a free-text field,
+      // not a User FK) — a known limitation of this bulk-sync path, see
+      // docs/migration plan for the MIS rebuild.
+      await otpStageService.advanceStage(
+        job.id,
+        {
+          assignedMember: allotment.stakeholderName.trim(),
+          remarks: allotment.allottedByUserName?.trim()
+            ? `Assigned by ${allotment.allottedByUserName.trim()} via vsnapu`
+            : "Assigned via vsnapu",
+        },
+        actorUserId
+      );
     }
 
     return {
