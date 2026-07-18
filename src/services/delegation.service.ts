@@ -219,7 +219,11 @@ export const delegationService = {
     }
 
     const tasks = await prisma.delegationTask.findMany({
-      where,
+      where: {
+        ...where,
+        // Only include delegation tasks belonging to ACTIVE users
+        assignedUser: { status: "ACTIVE" },
+      },
       select: {
         assignedUserId: true,
         status: true,

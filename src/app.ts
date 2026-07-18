@@ -10,6 +10,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import compression from "compression";
+import cookieParser from "cookie-parser";
 import { env } from "./config/env";
 import routes from "./routes/index";
 import { errorHandler } from "./middleware/errorHandler";
@@ -36,6 +37,7 @@ app.use(compression());
 app.use(morgan(env.NODE_ENV === "development" ? "dev" : "combined"));
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+app.use(cookieParser());
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", env: env.NODE_ENV, allowedOrigins });

@@ -11,6 +11,8 @@ const USER_SELECT = {
   departmentId: true,
   department: { select: { id: true, name: true } },
   departments: { select: { department: { select: { id: true, name: true } } } },
+  employeeId: true,
+  employee: { select: { id: true, joiningNo: true, candidateName: true, designation: true } },
   createdAt: true,
 } as const;
 
@@ -20,8 +22,12 @@ function flatten(u: any) {
 }
 
 export const userService = {
-  async getAll() {
-    const users = await prisma.user.findMany({ orderBy: { username: "asc" }, select: USER_SELECT });
+  async getAll(statusFilter?: "ACTIVE" | "INACTIVE") {
+    const users = await prisma.user.findMany({
+      orderBy: { username: "asc" },
+      select: USER_SELECT,
+      ...(statusFilter ? { where: { status: statusFilter } } : {}),
+    });
     return users.map(flatten);
   },
 
@@ -39,7 +45,7 @@ export const userService = {
     const exists = await prisma.user.findUnique({ where: { username: input.username } });
     if (exists) throw Object.assign(new Error("Username already taken"), { status: 409 });
 
-    const passwordHash = await bcrypt.hash(input.password, 10);
+    const passwordHash = await bcrypt.hash(input.password, 12);
     const user = await prisma.user.create({
       data: {
         username: input.username,
@@ -77,6 +83,25 @@ export const userService = {
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
     return flatten(await prisma.user.update({ where: { id }, data: { departmentId }, select: USER_SELECT }));
+  },
+
+  // Admin-only link between a login account and its HR roster record —
+  // see the User.employeeId schema comment (Module #53) for why this exists.
+  async updateEmployeeLink(id: number, employeeId: number | null) {
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
+
+    if (employeeId !== null) {
+      const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+      if (!employee) throw Object.assign(new Error("Employee not found"), { status: 404 });
+
+      const alreadyLinked = await prisma.user.findUnique({ where: { employeeId } });
+      if (alreadyLinked && alreadyLinked.id !== id) {
+        throw Object.assign(new Error("This employee is already linked to another user account"), { status: 400 });
+      }
+    }
+
+    return flatten(await prisma.user.update({ where: { id }, data: { employeeId }, select: USER_SELECT }));
   },
 
   async updateDepartments(id: number, input: UpdateUserDeptsInput) {

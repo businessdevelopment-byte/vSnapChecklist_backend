@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import jwt from "jsonwebtoken";
 import { verifyToken } from "../utils/jwt";
 import { sendError } from "../utils/apiResponse";
 
@@ -32,7 +33,11 @@ export const authMiddleware = (
     const payload = verifyToken(token);
     req.user = payload;
     next();
-  } catch {
-    sendError(res, "Unauthorized — invalid or expired token", 401);
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      sendError(res, "Access token expired", 401, { code: "TOKEN_EXPIRED" });
+    } else {
+      sendError(res, "Unauthorized — invalid token", 401);
+    }
   }
 };
