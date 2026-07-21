@@ -19,6 +19,7 @@ export const delegationService = {
     if (userId) where.assignedUserId = userId;
     if (query.departmentId) where.departmentId = query.departmentId;
     if (query.status) where.status = query.status;
+    if (query.frequency) where.frequency = query.frequency;
     if (query.nameFilter) {
       where.assignedUser = { username: { equals: query.nameFilter, mode: "insensitive" } };
     }

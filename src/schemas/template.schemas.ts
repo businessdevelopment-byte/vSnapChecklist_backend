@@ -43,6 +43,8 @@ export const templateQuerySchema = z.object({
     "END_OF_3RD_WEEK", "END_OF_4TH_WEEK", "END_OF_LAST_WEEK",
   ]).optional(),
   isActive: z.string().transform(v => v === "true" || v === "1").optional(),
+  startDate: z.string().date().optional(),
+  endDate: z.string().date().optional(),
   search: z.string().optional(),
   sortBy: z.enum(["taskCode", "department", "givenBy", "assignedUser", "frequency", "startDate"]).optional(),
   sortDir: z.enum(["asc", "desc"]).optional(),

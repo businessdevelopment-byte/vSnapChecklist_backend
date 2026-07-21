@@ -11,6 +11,12 @@ export const templateService = {
     if (query.assignedUserId) where.assignedUserId = query.assignedUserId;
     if (query.frequency) where.frequency = query.frequency;
     if (query.isActive !== undefined) where.isActive = query.isActive;
+    if (query.startDate || query.endDate) {
+      where.startDate = {
+        ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+        ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+      };
+    }
     if (query.search) {
       where.OR = [
         { description: { contains: query.search, mode: "insensitive" } },
