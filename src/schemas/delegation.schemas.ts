@@ -35,6 +35,7 @@ export const delegationQuerySchema = z.object({
   userId: z.coerce.number().int().positive().optional(),
   departmentId: z.coerce.number().int().positive().optional(),
   status: z.enum(["PENDING", "PLANNED", "VERIFY_PENDING", "DONE"]).optional(),
+  frequency: z.enum(["ONE_TIME", "CRITICAL", "URGENT"]).optional(),
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
   search: z.string().optional(),
