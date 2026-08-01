@@ -229,6 +229,13 @@ export const stageListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).default(100),
   search: z.string().optional(),
   client: z.string().optional(),
+  jobId: z.string().optional(),
+  projectId: z.string().optional(),
+  poc: z.string().optional(),
+  // Only ever honored on the ASSIGN_MEMBER stage's history (see
+  // otpStage.service.ts) — assignedMember lives in that stage's own
+  // OtpStageEvent.data, not on OtpJob, so it's meaningless elsewhere.
+  assignedMember: z.string().optional(),
 });
 
 export const advanceStageSchema = z.object({
