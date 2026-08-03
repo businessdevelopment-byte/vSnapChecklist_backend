@@ -214,12 +214,22 @@ export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unk
     data.photographerAvailable === "Yes" ? "FINAL_PHOTOGRAPHER" : "PHOTOGRAPHER_SEARCH",
   PHOTOGRAPHER_SEARCH: () => "FINAL_PHOTOGRAPHER",
   FINAL_PHOTOGRAPHER: () => "PHOTOGRAPHER_BRIEFING",
-  PHOTOGRAPHER_BRIEFING: () => "MAKE_TOKEN",
+  // These 5 stages each have their own "is this actually done" status field
+  // that staff can leave at "Pending" — in that case the job stays put
+  // (returns its own stage, a no-op for advanceStage()) instead of moving on
+  // as if the work were finished. Every other stage below has no such field
+  // and stays unconditional.
+  PHOTOGRAPHER_BRIEFING: (data) =>
+    data.allotmentConfirmationStatus === "Pending" ? "PHOTOGRAPHER_BRIEFING" : "MAKE_TOKEN",
   MAKE_TOKEN: () => "STORY_BRIEFING",
-  STORY_BRIEFING: () => "MOODBOARD_CREATION",
-  MOODBOARD_CREATION: () => "MOODBOARD_DELIVERY_TO_CLIENT",
-  MOODBOARD_DELIVERY_TO_CLIENT: () => "CLIENT_BRIEFING_BEFORE_SHOOT",
-  CLIENT_BRIEFING_BEFORE_SHOOT: () => "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT",
+  STORY_BRIEFING: (data) =>
+    data.finalBriefStatus === "Pending" ? "STORY_BRIEFING" : "MOODBOARD_CREATION",
+  MOODBOARD_CREATION: (data) =>
+    data.finalMoodboardStatus === "Pending" ? "MOODBOARD_CREATION" : "MOODBOARD_DELIVERY_TO_CLIENT",
+  MOODBOARD_DELIVERY_TO_CLIENT: (data) =>
+    data.deliveryStatus === "Pending" ? "MOODBOARD_DELIVERY_TO_CLIENT" : "CLIENT_BRIEFING_BEFORE_SHOOT",
+  CLIENT_BRIEFING_BEFORE_SHOOT: (data) =>
+    data.clientConfirmationStatus === "Pending" ? "CLIENT_BRIEFING_BEFORE_SHOOT" : "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT",
   PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: () => "COMPLETED",
   COMPLETED: () => null,
 };
