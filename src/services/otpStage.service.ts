@@ -23,7 +23,19 @@ export const otpStageService = {
     if (query.poc) where.pocName = { contains: query.poc, mode: "insensitive" };
 
     const [data, total] = await Promise.all([
-      prisma.otpJob.findMany({ where, skip, take, orderBy: { updatedAt: "desc" } }),
+      prisma.otpJob.findMany({ 
+        where, 
+        skip, 
+        take, 
+        orderBy: { updatedAt: "desc" },
+        include: {
+          stageEvents: {
+            where: { stage },
+            orderBy: { id: "desc" },
+            take: 1,
+          },
+        },
+      }),
       prisma.otpJob.count({ where }),
     ]);
 

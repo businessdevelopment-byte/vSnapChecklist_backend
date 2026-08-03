@@ -209,7 +209,8 @@ export const otpStageSchemas: Record<OtpStageName, z.ZodTypeAny> = {
 export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unknown>) => OtpStageName | null> = {
   ORDER_RECEIVED: () => "ASSIGN_MEMBER",
   ASSIGN_MEMBER: () => "RE_CONFIRMATION",
-  RE_CONFIRMATION: () => "PHOTOGRAPHER_ALLOTMENT",
+  RE_CONFIRMATION: (data) =>
+    data.confirmationStatus === "No" ? "RE_CONFIRMATION" : "PHOTOGRAPHER_ALLOTMENT",
   PHOTOGRAPHER_ALLOTMENT: (data) =>
     data.photographerAvailable === "Yes" ? "FINAL_PHOTOGRAPHER" : "PHOTOGRAPHER_SEARCH",
   PHOTOGRAPHER_SEARCH: () => "FINAL_PHOTOGRAPHER",
