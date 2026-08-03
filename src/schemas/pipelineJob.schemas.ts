@@ -9,16 +9,15 @@ export const pipelineJobQuerySchema = z.object({
 export type PipelineJobQueryInput = z.infer<typeof pipelineJobQuerySchema>;
 
 export const createPoliticalJobSchema = z.object({
-  projectName: z.string().min(1, "Project name is required"),
-  projectId: z.string().optional(),
-  type: z.string().optional(),
-  voiceover: z.string().optional(),
-  ideaDetails: z.string().optional(),
-  attachmentLink: z.string().optional(),
-  editorName: z.string().optional(),
-  voiceoverPersonName: z.string().optional(),
-  projectCoordinatorName: z.string().optional(),
-  pcEmail: z.string().email("Invalid email address").optional().or(z.literal("")),
+  projectName: z.string().min(1, "Required"),
+  reportingPersonName: z.string().optional(),
+  reportingPersonWhatsapp: z.string().optional(),
+  reportingGroupName: z.string().optional(),
+  instagramPages: z.string().optional(),
+  currentFollowers: z.string().optional(),
+  openingViews: z.string().optional(),
+  monthlyViewsTarget: z.string().optional(),
+  remarks: z.string().optional(),
 });
 
 export type CreatePoliticalJobInput = z.infer<typeof createPoliticalJobSchema>;

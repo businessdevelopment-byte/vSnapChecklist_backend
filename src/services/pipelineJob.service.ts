@@ -42,18 +42,30 @@ export const pipelineJobService = {
   // every pipelineType still has one consistent "what is this row" display
   // field, satisfying the column's NOT NULL constraint without inventing a
   // new business concept — see docs/migration/DECISIONS.md.
-  async createPoliticalJob(input: CreatePoliticalJobInput) {
+  async createPoliticalJob(input: CreatePoliticalJobInput, actorUserId: number) {
     const sequence = (await prisma.pipelineJob.count({ where: { pipelineType: PipelineType.POLITICAL } })) + 1;
     const jobId = `JCD-${String(sequence).padStart(5, "0")}`;
 
-    return prisma.pipelineJob.create({
+    const [job] = await prisma.$transaction([
+      prisma.pipelineJob.create({
+        data: {
+          pipelineType: PipelineType.POLITICAL,
+          jobId,
+          client: input.projectName,
+          currentStage: "JOB_CARD_PLANNING",
+        } satisfies Prisma.PipelineJobUncheckedCreateInput,
+      }),
+    ]);
+
+    await prisma.pipelineStageEvent.create({
       data: {
-        ...input,
-        pipelineType: PipelineType.POLITICAL,
-        jobId,
-        client: input.projectName,
-        currentStage: "JOB_CARDS",
-      } satisfies Prisma.PipelineJobUncheckedCreateInput,
+        pipelineJobId: job.id,
+        stage: "PROJECT_ORDER",
+        data: input as Prisma.InputJsonValue,
+        actorUserId,
+      },
     });
+
+    return job;
   },
 };

@@ -7,7 +7,7 @@ export const pipelineJobController = {
   async createPoliticalJob(req: Request, res: Response): Promise<void> {
     try {
       const input = createPoliticalJobSchema.parse(req.body);
-      const job = await pipelineJobService.createPoliticalJob(input);
+      const job = await pipelineJobService.createPoliticalJob(input, req.user!.userId);
       sendSuccess(res, job, "Job card created", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
