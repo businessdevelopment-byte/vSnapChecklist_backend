@@ -15,7 +15,7 @@ export const loginLimiter = rateLimit({
 
 export const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 5,
+  max: 10,
   message: "Too many registration attempts, please try again later",
   standardHeaders: false,
   skip: (req: Request) => req.method !== "POST",

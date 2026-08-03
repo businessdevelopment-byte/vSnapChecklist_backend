@@ -209,18 +209,31 @@ export const otpStageSchemas: Record<OtpStageName, z.ZodTypeAny> = {
 export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unknown>) => OtpStageName | null> = {
   ORDER_RECEIVED: () => "ASSIGN_MEMBER",
   ASSIGN_MEMBER: () => "RE_CONFIRMATION",
-  RE_CONFIRMATION: () => "PHOTOGRAPHER_ALLOTMENT",
+  RE_CONFIRMATION: (data) =>
+    data.confirmationStatus === "No" ? "RE_CONFIRMATION" : "PHOTOGRAPHER_ALLOTMENT",
   PHOTOGRAPHER_ALLOTMENT: (data) =>
     data.photographerAvailable === "Yes" ? "FINAL_PHOTOGRAPHER" : "PHOTOGRAPHER_SEARCH",
   PHOTOGRAPHER_SEARCH: () => "FINAL_PHOTOGRAPHER",
   FINAL_PHOTOGRAPHER: () => "PHOTOGRAPHER_BRIEFING",
-  PHOTOGRAPHER_BRIEFING: () => "MAKE_TOKEN",
-  MAKE_TOKEN: () => "STORY_BRIEFING",
-  STORY_BRIEFING: () => "MOODBOARD_CREATION",
-  MOODBOARD_CREATION: () => "MOODBOARD_DELIVERY_TO_CLIENT",
-  MOODBOARD_DELIVERY_TO_CLIENT: () => "CLIENT_BRIEFING_BEFORE_SHOOT",
-  CLIENT_BRIEFING_BEFORE_SHOOT: () => "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT",
-  PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: () => "COMPLETED",
+  // These 5 stages each have their own "is this actually done" status field
+  // that staff can leave at "Pending" — in that case the job stays put
+  // (returns its own stage, a no-op for advanceStage()) instead of moving on
+  // as if the work were finished. Every other stage below has no such field
+  // and stays unconditional.
+  PHOTOGRAPHER_BRIEFING: (data) =>
+    data.allotmentConfirmationStatus === "Pending" ? "PHOTOGRAPHER_BRIEFING" : "MAKE_TOKEN",
+  MAKE_TOKEN: (data) =>
+    data.paymentAgain === "No" ? "MAKE_TOKEN" : "STORY_BRIEFING",
+  STORY_BRIEFING: (data) =>
+    data.finalBriefStatus === "Pending" ? "STORY_BRIEFING" : "MOODBOARD_CREATION",
+  MOODBOARD_CREATION: (data) =>
+    data.finalMoodboardStatus === "Pending" ? "MOODBOARD_CREATION" : "MOODBOARD_DELIVERY_TO_CLIENT",
+  MOODBOARD_DELIVERY_TO_CLIENT: (data) =>
+    data.deliveryStatus === "Pending" ? "MOODBOARD_DELIVERY_TO_CLIENT" : "CLIENT_BRIEFING_BEFORE_SHOOT",
+  CLIENT_BRIEFING_BEFORE_SHOOT: (data) =>
+    data.clientConfirmationStatus === "Confirmed" ? "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT" : "CLIENT_BRIEFING_BEFORE_SHOOT",
+  PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: (data) =>
+    data.photographerConfirmation === "No" ? "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT" : "COMPLETED",
   COMPLETED: () => null,
 };
 
@@ -229,6 +242,13 @@ export const stageListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(500).default(100),
   search: z.string().optional(),
   client: z.string().optional(),
+  jobId: z.string().optional(),
+  projectId: z.string().optional(),
+  poc: z.string().optional(),
+  // Only ever honored on the ASSIGN_MEMBER stage's history (see
+  // otpStage.service.ts) — assignedMember lives in that stage's own
+  // OtpStageEvent.data, not on OtpJob, so it's meaningless elsewhere.
+  assignedMember: z.string().optional(),
 });
 
 export const advanceStageSchema = z.object({

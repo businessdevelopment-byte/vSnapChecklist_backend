@@ -24,6 +24,16 @@ export const otpStageController = {
     }
   },
 
+  async listAssignedMembers(_req: Request, res: Response): Promise<void> {
+    try {
+      const members = await otpStageService.listDistinctAssignedMembers();
+      sendSuccess(res, members, "Assigned members fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch assigned members", e.status ?? 500);
+    }
+  },
+
   async listHistory(req: Request, res: Response): Promise<void> {
     try {
       const stage = parseStageParam(String(req.params.stage));

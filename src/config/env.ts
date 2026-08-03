@@ -13,6 +13,11 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
   REFRESH_TOKEN_EXPIRES_IN_DAYS: z.coerce.number().int().positive().default(30),
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
+  // Shared parent domain (e.g. ".vsnapu.com") for the refreshToken/accessToken
+  // cookies — set this when the frontend and backend live on different
+  // subdomains of the same site, so the browser attaches the cookie to both.
+  // Leave unset for local dev (host-only cookie, matches localhost same-origin setup).
+COOKIE_DOMAIN: z.string().optional(),
   VSNAPU_JOB_MASTER_BASE_URL: z.string().url().default("https://apis.vsnapu.com"),
 });
 

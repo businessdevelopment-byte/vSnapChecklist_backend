@@ -29,6 +29,16 @@ export const otpJobController = {
     }
   },
 
+  async listPocs(_req: Request, res: Response): Promise<void> {
+    try {
+      const pocs = await otpJobService.listDistinctPocs();
+      sendSuccess(res, pocs, "POCs fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch POCs", e.status ?? 500);
+    }
+  },
+
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createOtpJobSchema.parse(req.body);

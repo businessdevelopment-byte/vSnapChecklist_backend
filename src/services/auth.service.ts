@@ -59,6 +59,14 @@ export const authService = {
       throw Object.assign(new Error("Username already taken"), { status: 409 });
     }
 
+    // Bootstrap: if the system has zero admins, the next signup becomes one
+    // regardless of what was requested — guarantees a fresh system always
+    // gets an admin even if the caller forgets to ask for one. Once any
+    // admin exists, the client-requested role (input.role, defaults to
+    // "USER" — see registerSchema) is honored as-is.
+    const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+    const role = adminCount === 0 ? "ADMIN" : input.role;
+
     const passwordHash = await bcrypt.hash(input.password, 12);
     const user = await prisma.user.create({
       data: {
@@ -66,7 +74,7 @@ export const authService = {
         passwordHash,
         email: input.email ?? null,
         departmentId: input.departmentId ?? null,
-        role: "USER",
+        role,
         status: "ACTIVE",
       },
       include: { department: { select: { id: true, name: true } } },

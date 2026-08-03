@@ -17,6 +17,7 @@ export const registerSchema = z.object({
     .max(100),
   email: z.string().email("Invalid email").optional().nullable(),
   departmentId: z.number().int().positive().optional().nullable(),
+  role: z.enum(["ADMIN", "USER"]).default("USER"),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

@@ -6,6 +6,7 @@ const router = Router();
 
 router.use(authMiddleware);
 
+router.get("/assign-member/assigned-members", otpStageController.listAssignedMembers);
 router.get("/:stage/pending", otpStageController.listPending);
 router.get("/:stage/history", otpStageController.listHistory);
 router.post("/:id/advance", otpStageController.advance);
