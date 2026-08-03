@@ -231,7 +231,7 @@ export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unk
   MOODBOARD_DELIVERY_TO_CLIENT: (data) =>
     data.deliveryStatus === "Pending" ? "MOODBOARD_DELIVERY_TO_CLIENT" : "CLIENT_BRIEFING_BEFORE_SHOOT",
   CLIENT_BRIEFING_BEFORE_SHOOT: (data) =>
-    data.clientConfirmationStatus === "Pending" ? "CLIENT_BRIEFING_BEFORE_SHOOT" : "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT",
+    data.clientConfirmationStatus === "Confirmed" ? "PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT" : "CLIENT_BRIEFING_BEFORE_SHOOT",
   PHOTOGRAPHER_BRIEFING_BEFORE_SHOOT: () => "COMPLETED",
   COMPLETED: () => null,
 };
