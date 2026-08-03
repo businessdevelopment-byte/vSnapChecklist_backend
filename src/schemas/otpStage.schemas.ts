@@ -222,7 +222,8 @@ export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unk
   // and stays unconditional.
   PHOTOGRAPHER_BRIEFING: (data) =>
     data.allotmentConfirmationStatus === "Pending" ? "PHOTOGRAPHER_BRIEFING" : "MAKE_TOKEN",
-  MAKE_TOKEN: () => "STORY_BRIEFING",
+  MAKE_TOKEN: (data) =>
+    data.paymentAgain === "No" ? "MAKE_TOKEN" : "STORY_BRIEFING",
   STORY_BRIEFING: (data) =>
     data.finalBriefStatus === "Pending" ? "STORY_BRIEFING" : "MOODBOARD_CREATION",
   MOODBOARD_CREATION: (data) =>
