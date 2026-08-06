@@ -48,9 +48,9 @@ export const politicalStageTransitions: Record<PoliticalStageName, (data: Record
   SHOOTING: () => "VOICEOVER",
   VOICEOVER: () => "EDITING",
   EDITING: () => "EDITING_QC",
-  EDITING_QC: (data) => (data.qcApproval === "Approved" ? "DELIVERY_POSTING" : "RE_EDIT"),
+  EDITING_QC: (data) => (data.status === "Approved" ? "DELIVERY_POSTING" : "RE_EDIT"),
   RE_EDIT: () => "RE_QC",
-  RE_QC: (data) => (data.status === "Closed (Done)" ? "DELIVERY_POSTING" : "RE_EDIT"),
+  RE_QC: (data) => (data.status === "Approved" ? "DELIVERY_POSTING" : "RE_EDIT"),
   DELIVERY_POSTING: () => "DOCUMENT_OF_POST",
   DOCUMENT_OF_POST: () => "COMPLETED",
   COMPLETED: () => null,
@@ -80,24 +80,37 @@ const jobCardPlanningSchema = z.object({
 });
 
 const influencerDetailsUpdateSchema = z.object({
+  jobCardNumber: z.string(),
   influencerName: z.string(),
   linkOfChannel: z.string(),
   price: z.string(),
 });
 
 const influencerScriptWritingSchema = z.object({
+  newsTopic: z.string(),
+  newsNumber: z.string(),
+  videoType: z.enum(["With Face (inhouse)", "Jacket Video"]),
   scriptTextUpload: z.string(),
+  editorName: z.string(),
 });
 
 const inhouseScriptWritingSchema = z.object({
+  newsTopic: z.string(),
+  newsNumber: z.string(),
+  videoType: z.enum(["With Face (inhouse)", "Jacket Video"]),
   scriptTextUpload: z.string(),
+  editorName: z.string(),
 });
 
 const influencerScriptApprovalSchema = z.object({
+  newsTopic: z.string(),
+  newzNumber: z.string(),
   status: z.enum(["Approved", "Rejected"]),
 });
 
 const inhouseScriptApprovalSchema = z.object({
+  newsTopic: z.string(),
+  newzNumber: z.string(),
   status: z.enum(["Approved", "Rejected"]),
 });
 
@@ -108,6 +121,8 @@ const sendScriptToInfluencerSchema = z.object({
 });
 
 const shootingSchema = z.object({
+  newsTopic: z.string(),
+  newzNumber: z.string(),
   status: z.enum(["Completed", "Pending"]),
 });
 
@@ -118,35 +133,45 @@ const voiceOverSchema = z.object({
 });
 
 const editingSchema = z.object({
+  newsTopic: z.string(),
+  newzNumber: z.string(),
   status: z.enum(["Completed"]),
-  videoUpload: z.string(),
+  videoVsnapUPanelLink: z.string(),
 });
 
 const editingQCSchema = z.object({
-  qcApproval: z.enum(["Okay", "Not Okay"]),
+  newsTopic: z.string(),
+  newzNumber: z.string(),
+  status: z.enum(["Approved", "Rejected"]),
+  remarks: z.string().optional(),
 });
 
 const reEditSchema = z.object({
-  status: z.enum(["Okay"]),
-  videoUpload: z.string(),
+  newsTopic: z.string(),
+  vsnapUPanelLink: z.string(),
 });
 
 const reQCSchema = z.object({
-  status: z.enum(["Okay", "Not Okay"]),
+  newsTopic: z.string(),
+  status: z.enum(["Approved", "Rejected"]),
 });
 
 const getVideoFromInfluencerSchema = z.object({
+  jobCardNumber: z.string(),
   status: z.enum(["Okay", "Not Okay"]),
   videoUpload: z.string(),
 });
 
 const deliveryPostingSchema = z.object({
+  newsTopic: z.string(),
+  newzNumber: z.string(),
   status: z.enum(["Completed", "Pending"]),
   linkOfPost: z.string(),
   sharedInClientGroup: z.enum(["Yes", "No"]),
 });
 
 const documentOfPostSchema = z.object({
+  jobCardNumber: z.string(),
   status: z.enum(["Completed", "Pending"]),
   linkOfPost: z.string(),
   currentViews: z.string(),

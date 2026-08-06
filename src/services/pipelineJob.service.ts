@@ -1,6 +1,6 @@
 import { Prisma, PipelineType, type OtpJob } from "@prisma/client";
 import { prisma } from "../config/database";
-import type { CreatePoliticalJobInput } from "../schemas/pipelineJob.schemas";
+import type { CreateJobCardsBatchInput } from "../schemas/pipelineJob.schemas";
 
 // PMS's own job-creation intake (formerly Sales Team) was removed per
 // explicit direction — PMS jobs arrive instead via the hand-off below,
@@ -37,35 +37,48 @@ export const pipelineJobService = {
     });
   },
 
-  // Job Cards is Political's own intake stage. Political has no "client" concept in the source (it tracks content
-  // projects, not client jobs) — `client` is set to `projectName`'s value so
-  // every pipelineType still has one consistent "what is this row" display
-  // field, satisfying the column's NOT NULL constraint without inventing a
-  // new business concept — see docs/migration/DECISIONS.md.
-  async createPoliticalJob(input: CreatePoliticalJobInput, actorUserId: number) {
-    const sequence = (await prisma.pipelineJob.count({ where: { pipelineType: PipelineType.POLITICAL } })) + 1;
-    const jobId = `JCD-${String(sequence).padStart(5, "0")}`;
-
-    const [job] = await prisma.$transaction([
-      prisma.pipelineJob.create({
-        data: {
-          pipelineType: PipelineType.POLITICAL,
-          jobId,
-          client: input.projectName,
-          currentStage: "JOB_CARD_PLANNING",
-        } satisfies Prisma.PipelineJobUncheckedCreateInput,
-      }),
-    ]);
-
-    await prisma.pipelineStageEvent.create({
-      data: {
-        pipelineJobId: job.id,
-        stage: "PROJECT_ORDER",
-        data: input as Prisma.InputJsonValue,
-        actorUserId,
-      },
+  // Job Cards is Political's own intake stage, entered via "News Picking":
+  // one submission picks 1-10 news topics for an existing PoliticalProjectOrder
+  // (many Job Cards can share one Project Order — see PoliticalProjectOrder
+  // model), creating one bare Job Card per topic, each sitting PENDING at
+  // JOB_CARD_PLANNING with its topic pre-filled onto `ideaDetails`. The
+  // remaining planning fields (contentType, plannedDate, editorName) are
+  // filled in afterward via the existing, unchanged Job Card Planning form +
+  // advanceStage() flow, exactly like every other stage in this pipeline
+  // (create -> Pending -> open -> submit -> advance), not skipped straight
+  // to History. Political has no "client" concept in the source (it tracks
+  // content projects, not client jobs) — `client` is set to the parent
+  // Project Order's `projectName` so every pipelineType still has one
+  // consistent "what is this row" display field — see docs/migration/DECISIONS.md.
+  async createJobCardsBatch(input: CreateJobCardsBatchInput, _actorUserId: number) {
+    const projectOrder = await prisma.politicalProjectOrder.findUnique({
+      where: { id: input.politicalProjectOrderId },
     });
+    if (!projectOrder) {
+      throw Object.assign(new Error("Project Order not found"), { status: 404 });
+    }
 
-    return job;
+    return prisma.$transaction(async (tx) => {
+      const created = [];
+      for (const topic of input.topics) {
+        const sequence = (await tx.pipelineJob.count({ where: { pipelineType: PipelineType.POLITICAL } })) + 1;
+        const jobId = `JCD-${String(sequence).padStart(5, "0")}`;
+
+        created.push(
+          await tx.pipelineJob.create({
+            data: {
+              pipelineType: PipelineType.POLITICAL,
+              jobId,
+              client: projectOrder.projectName,
+              projectName: projectOrder.projectName,
+              politicalProjectOrderId: input.politicalProjectOrderId,
+              ideaDetails: topic,
+              currentStage: "JOB_CARD_PLANNING",
+            } satisfies Prisma.PipelineJobUncheckedCreateInput,
+          })
+        );
+      }
+      return created;
+    });
   },
 };

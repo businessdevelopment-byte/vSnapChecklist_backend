@@ -30,11 +30,18 @@ model User {
   checklistEntries         ChecklistEntry[]     @relation("EntryAssignedTo")
   transferredTo            ChecklistEntry[]     @relation("EntryTransferredTo")
   delegationHistory        DelegationHistory[]  @relation("HistorySubmittedBy")
+  delegationHistoryReviewed DelegationHistory[] @relation("DelegationHistoryReviewedBy")
   delegationTasks          DelegationTask[]     @relation("DelegationAssignedTo")
   templateTasks            TaskTemplate[]       @relation("TemplateAssignedTo")
   transfersFrom            TaskTransferLog[]    @relation("TransferFrom")
   transfersTo              TaskTransferLog[]    @relation("TransferTo")
   transferredBy            TaskTransferLog[]    @relation("TransferBy")
+  leaveLogs                LeaveLog[]           @relation("LeaveLogFor")
+  leaveLogsMarked          LeaveLog[]           @relation("LeaveLogMarkedBy")
+  transferRequestsFrom     TransferRequest[]    @relation("TransferRequestFrom")
+  transferRequestsTo       TransferRequest[]    @relation("TransferRequestTo")
+  transferRequestsMade     TransferRequest[]    @relation("TransferRequestBy")
+  transferRequestsReviewed TransferRequest[]    @relation("TransferRequestReviewedBy")
   departments              UserDepartment[]
   department               Department?          @relation(fields: [departmentId], references: [id])
   employee                 Employee?            @relation(fields: [employeeId], references: [id])
@@ -48,6 +55,7 @@ model User {
   enquiriesCreated         Enquiry[]            @relation("EnquiryCreatedBy")
   followUpsCreated         FollowUp[]           @relation("FollowUpCreatedBy")
   jobApplicationsCreated   JobApplication[]     @relation("JobApplicationCreatedBy")
+  politicalProjectOrdersCreated PoliticalProjectOrder[] @relation("PoliticalProjectOrderCreatedBy")
 
   @@index([username])
   @@index([departmentId])
@@ -159,6 +167,12 @@ model ChecklistEntry {
   adminDone         Boolean           @default(false)
   leaveStatus       Boolean           @default(false)
   transferredToId   Int?
+  // Live "on loan" overlay for a temporary transfer — assignedUserId is never
+  // changed by a transfer; while this is set and in the future, the entry is
+  // hidden from Checklist and shown (tagged) on transferredTo's Delegation
+  // page instead. Cleared automatically once expired (see
+  // checklistService.reconcileExpiredTransfers) — no cron, just lazy-on-read.
+  transferValidUntil DateTime?        @db.Date
   remarks1          String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
@@ -196,6 +210,7 @@ model DelegationTask {
   updatedAt         DateTime            @updatedAt
   taskEndDate       DateTime?
   history           DelegationHistory[]
+  transferLogs      TaskTransferLog[]
   assignedUser      User                @relation("DelegationAssignedTo", fields: [assignedUserId], references: [id])
   department        Department          @relation(fields: [departmentId], references: [id])
 
@@ -207,24 +222,33 @@ model DelegationTask {
 }
 
 model DelegationHistory {
-  id                Int            @id @default(autoincrement())
+  id                Int                     @id @default(autoincrement())
   delegationTaskId  Int
   submittedByUserId Int
-  submissionDate    DateTime       @db.Date
+  submissionDate    DateTime                @db.Date
   status            HistoryStatus
-  nextTargetDate    DateTime?      @db.Date
+  nextTargetDate    DateTime?               @db.Date
   remarks           String?
   imageUrl          String?
   taskDescription   String
   givenBy           String?
   adminDoneStatus   String?
-  isLate            Boolean        @default(false)
-  createdAt         DateTime       @default(now())
-  delegationTask    DelegationTask @relation(fields: [delegationTaskId], references: [id], onDelete: Cascade)
-  submittedBy       User           @relation("HistorySubmittedBy", fields: [submittedByUserId], references: [id])
+  isLate            Boolean                 @default(false)
+  createdAt         DateTime                @default(now())
+  // Review gate for "DONE" submissions — null for EXTEND_DATE rows, which
+  // never need admin verification. See delegationService.submit()/
+  // approveSubmission()/rejectSubmission().
+  reviewStatus      DelegationReviewStatus?
+  reviewedByUserId  Int?
+  reviewedAt        DateTime?
+  reviewNote        String?
+  delegationTask    DelegationTask          @relation(fields: [delegationTaskId], references: [id], onDelete: Cascade)
+  submittedBy       User                    @relation("HistorySubmittedBy", fields: [submittedByUserId], references: [id])
+  reviewedBy        User?                   @relation("DelegationHistoryReviewedBy", fields: [reviewedByUserId], references: [id])
 
   @@index([delegationTaskId])
   @@index([submittedByUserId, submissionDate])
+  @@index([reviewStatus, createdAt])
   @@map("delegation_history")
 }
 
@@ -232,20 +256,81 @@ model TaskTransferLog {
   id                  Int             @id @default(autoincrement())
   checklistEntryId    BigInt?
   templateId          Int?
+  delegationTaskId    Int?
   fromUserId          Int
   toUserId            Int
   transferredByUserId Int
   reason              String?
   transferredAt       DateTime        @default(now())
+  // The task-date-range this transfer covered ("kab tak" — until when) —
+  // populated only for checklist-entry rows, whose transfers are temporary;
+  // left null for delegation-task rows, which remain a permanent reassignment.
+  validFrom           DateTime?       @db.Date
+  validUntil          DateTime?       @db.Date
   checklistEntry      ChecklistEntry? @relation(fields: [checklistEntryId], references: [id])
+  delegationTask      DelegationTask? @relation(fields: [delegationTaskId], references: [id])
   fromUser            User            @relation("TransferFrom", fields: [fromUserId], references: [id])
   toUser              User            @relation("TransferTo", fields: [toUserId], references: [id])
   transferredBy       User            @relation("TransferBy", fields: [transferredByUserId], references: [id])
 
   @@index([checklistEntryId])
+  @@index([delegationTaskId])
   @@index([fromUserId, transferredAt])
   @@index([toUserId, transferredAt])
   @@map("task_transfer_logs")
+}
+
+// Audit trail for markLeave() — the ChecklistEntry.leaveStatus flag it sets
+// carries no memory of who performed the action or when; this does.
+model LeaveLog {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  markedByUserId Int
+  startDate      DateTime @db.Date
+  endDate        DateTime @db.Date
+  reason         String?
+  markedAt       DateTime @default(now())
+  user           User     @relation("LeaveLogFor", fields: [userId], references: [id])
+  markedBy       User     @relation("LeaveLogMarkedBy", fields: [markedByUserId], references: [id])
+
+  @@index([userId, markedAt])
+  @@map("leave_logs")
+}
+
+enum TransferRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// A submitted-but-not-yet-applied transfer. Nothing on checklist_entries or
+// delegation_tasks changes until an admin approves it (see transfer.service.ts
+// executeTransfer()) — approving replays the exact taskCodes/delegationTaskCodes
+// captured here, not a re-derived "everything in range" at approval time.
+model TransferRequest {
+  id                  Int                   @id @default(autoincrement())
+  fromUserId          Int
+  toUserId            Int
+  requestedByUserId   Int
+  startDate           DateTime
+  endDate             DateTime
+  reason              String?
+  taskCodes           String[]
+  delegationTaskCodes String[]
+  transferTemplate    Boolean               @default(false)
+  status              TransferRequestStatus @default(PENDING)
+  reviewedByUserId    Int?
+  reviewedAt          DateTime?
+  reviewNote          String?
+  createdAt           DateTime              @default(now())
+  fromUser            User                  @relation("TransferRequestFrom", fields: [fromUserId], references: [id])
+  toUser              User                  @relation("TransferRequestTo", fields: [toUserId], references: [id])
+  requestedBy         User                  @relation("TransferRequestBy", fields: [requestedByUserId], references: [id])
+  reviewedBy          User?                 @relation("TransferRequestReviewedBy", fields: [reviewedByUserId], references: [id])
+
+  @@index([status, createdAt])
+  @@index([fromUserId])
+  @@map("transfer_requests")
 }
 
 model OtpJob {
@@ -349,8 +434,16 @@ model PipelineJob {
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
   stageEvents            PipelineStageEvent[]
+  // Political only: which Project Order this Job Card was created under.
+  // Nullable because pre-existing rows (created before this FK existed) have
+  // no parent Project Order to point to — see docs/migration/DECISIONS.md.
+  // Always non-null for new Political rows (enforced at the Zod boundary,
+  // not the DB, so legacy rows aren't retroactively invalidated).
+  politicalProjectOrderId Int?
+  politicalProjectOrder   PoliticalProjectOrder? @relation(fields: [politicalProjectOrderId], references: [id])
 
   @@index([pipelineType, currentStage])
+  @@index([politicalProjectOrderId])
   @@map("pipeline_jobs")
 }
 
@@ -371,6 +464,39 @@ model PipelineStageEvent {
   @@index([stage])
   @@index([actorUserId, createdAt])
   @@map("pipeline_stage_events")
+}
+
+// Political only: the real parent entity a Job Card (PipelineJob) is created
+// under. Previously "Project Order" was just the first stage of a
+// PipelineJob row (1 Project Order == 1 Job Card, structurally). This model
+// makes Project Order a standalone, listable record that many Job Cards can
+// reference, so a single Project Order can have many Job Cards over time.
+// Fields mirror the Project Order form fields already live in
+// pipelineJob.schemas.ts's (now removed) createPoliticalJobSchema.
+model PoliticalProjectOrder {
+  id                      Int          @id @default(autoincrement())
+  // "PRJ-00001" — same count()+1 / zero-pad convention as PipelineJob.jobId
+  // and every other business id in this codebase (see DECISIONS.md's
+  // UUID-rejection entry). Not related to OTP's own, differently-shaped
+  // no-dash projectId ("PRJ00001") on OtpJob — different table, different id space.
+  projectOrderId          String       @unique
+  projectName             String
+  reportingPersonName     String?
+  reportingPersonWhatsapp String?
+  reportingGroupName      String?
+  instagramPages          String?
+  currentFollowers        String?
+  openingViews            String?
+  monthlyViewsTarget      String?
+  remarks                 String?
+  createdByUserId         Int?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+  jobCards                PipelineJob[]
+  createdBy               User?        @relation("PoliticalProjectOrderCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([createdAt])
+  @@map("political_project_orders")
 }
 
 // HR-SS Recruitment Pipeline enums and models (Phase A foundation)
@@ -1088,6 +1214,12 @@ enum CompletionStatus {
 enum HistoryStatus {
   DONE
   EXTEND_DATE
+}
+
+enum DelegationReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum OtpJobStage {

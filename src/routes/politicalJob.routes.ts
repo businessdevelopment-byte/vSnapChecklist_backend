@@ -7,7 +7,7 @@ const router = Router();
 
 router.use(authMiddleware);
 
-router.post("/", pipelineJobController.createPoliticalJob);
+router.post("/", pipelineJobController.createJobCardsBatch);
 router.get("/:stage/pending", politicalStageController.listPending);
 router.get("/:stage/history", politicalStageController.listHistory);
 router.post("/:id/advance", politicalStageController.advance);

@@ -11,7 +11,10 @@ router.get("/stats", checklistController.getStats);
 router.get("/staff-stats", checklistController.getStaffStats); // admin
 router.get("/monthly-stats", checklistController.getMonthlyStats); // admin
 router.get("/calendar-summary", checklistController.getCalendarSummary);
+router.get("/preview", checklistController.previewUpcoming); // read-only projection, no DB writes
 router.get("/history", checklistController.getHistory);
+router.get("/transferred-in", checklistController.getTransferredIn); // tasks currently on loan to me
+router.get("/leave-logs", checklistController.getLeaveLogs); // audit trail for markLeave()
 
 // Main list — triggers lazy task generation
 router.get("/", checklistController.getEntries);

@@ -6,9 +6,11 @@ import {
   updateDelegationStatusSchema,
   submitDelegationSchema,
   adminDoneDelegationSchema,
+  reviewSubmissionSchema,
   delegationQuerySchema,
   delegationHistoryQuerySchema,
   delegationMisQuerySchema,
+  importDelegationsSchema,
 } from "../schemas/delegation.schemas";
 
 export const delegationController = {
@@ -41,6 +43,17 @@ export const delegationController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to create delegation task", e.status ?? 400);
+    }
+  },
+
+  async importMany(req: Request, res: Response): Promise<void> {
+    try {
+      const input = importDelegationsSchema.parse(req.body);
+      const result = await delegationService.importMany(input);
+      sendSuccess(res, result, "Delegation import complete");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Import failed", e.status ?? 400);
     }
   },
 
@@ -99,6 +112,53 @@ export const delegationController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to mark admin done", e.status ?? 400);
+    }
+  },
+
+  async listSubmissions(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") {
+        sendError(res, "Only admin can view delegation submissions", 403);
+        return;
+      }
+      const submissions = await delegationService.listSubmissionsForReview();
+      sendSuccess(res, submissions, "Delegation submissions fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch delegation submissions", e.status ?? 500);
+    }
+  },
+
+  async approveSubmission(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") {
+        sendError(res, "Only admin can approve delegation submissions", 403);
+        return;
+      }
+      const result = await delegationService.approveSubmission(Number(req.params.historyId), req.user!.userId);
+      sendSuccess(res, result, "Submission approved");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to approve submission", e.status ?? 400);
+    }
+  },
+
+  async rejectSubmission(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") {
+        sendError(res, "Only admin can reject delegation submissions", 403);
+        return;
+      }
+      const { reviewNote } = reviewSubmissionSchema.parse(req.body);
+      const result = await delegationService.rejectSubmission(
+        Number(req.params.historyId),
+        req.user!.userId,
+        reviewNote
+      );
+      sendSuccess(res, result, "Submission rejected");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to reject submission", e.status ?? 400);
     }
   },
 

@@ -27,12 +27,22 @@ export const politicalStageService = {
     if (isSharedStage) {
       // Shared stages show all jobs (no filtering)
       [data, total] = await Promise.all([
-        prisma.pipelineJob.findMany({ where, skip, take, orderBy: { updatedAt: "desc" } }),
+        prisma.pipelineJob.findMany({
+          where,
+          skip,
+          take,
+          orderBy: { updatedAt: "desc" },
+          include: { politicalProjectOrder: { select: { projectOrderId: true } } },
+        }),
         prisma.pipelineJob.count({ where }),
       ]);
     } else {
       // Track-specific stages: filter by contentType from JOB_CARD_PLANNING event
-      const jobs = await prisma.pipelineJob.findMany({ where, orderBy: { updatedAt: "desc" } });
+      const jobs = await prisma.pipelineJob.findMany({
+        where,
+        orderBy: { updatedAt: "desc" },
+        include: { politicalProjectOrder: { select: { projectOrderId: true } } },
+      });
 
       const filteredJobs = await Promise.all(
         jobs.map(async (job) => {
@@ -86,7 +96,7 @@ export const politicalStageService = {
           skip,
           take,
           orderBy: { createdAt: "desc" },
-          include: { pipelineJob: true },
+          include: { pipelineJob: { include: { politicalProjectOrder: { select: { projectOrderId: true } } } } },
         }),
         prisma.pipelineStageEvent.count({ where }),
       ]);
@@ -95,7 +105,7 @@ export const politicalStageService = {
       const allEvents = await prisma.pipelineStageEvent.findMany({
         where,
         orderBy: { createdAt: "desc" },
-        include: { pipelineJob: true },
+        include: { pipelineJob: { include: { politicalProjectOrder: { select: { projectOrderId: true } } } } },
       });
 
       const filteredEvents = await Promise.all(
@@ -147,11 +157,27 @@ export const politicalStageService = {
       throw Object.assign(new Error("This job has already completed the final stage"), { status: 400 });
     }
 
+    // Job Card Planning's fields aren't fully known at job-creation time
+    // (see pipelineJobService.createJobCardsBatch, which only pre-fills the
+    // topic) — this is the first point the rest actually exist, so persist
+    // them onto PipelineJob's own columns here.
+    // Every downstream stage's locked "News Topic"/"Editor Name" fields read
+    // from these columns, not from this stage's own PipelineStageEvent JSON.
+    const jobCardPlanningUpdate =
+      currentStage === "JOB_CARD_PLANNING"
+        ? {
+            type: parsed.contentType as string,
+            ideaDetails: parsed.ideaDetailsTopic as string,
+            attachmentLink: (parsed.linkOrAttachment as string | undefined) ?? null,
+            editorName: parsed.editorName as string,
+          }
+        : {};
+
     const [, updatedJob] = await prisma.$transaction([
       prisma.pipelineStageEvent.create({
         data: { pipelineJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue, actorUserId },
       }),
-      prisma.pipelineJob.update({ where: { id: job.id }, data: { currentStage: next } }),
+      prisma.pipelineJob.update({ where: { id: job.id }, data: { currentStage: next, ...jobCardPlanningUpdate } }),
     ]);
 
     return updatedJob;

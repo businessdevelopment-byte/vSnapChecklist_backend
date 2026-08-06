@@ -8,16 +8,16 @@ export const pipelineJobQuerySchema = z.object({
 
 export type PipelineJobQueryInput = z.infer<typeof pipelineJobQuerySchema>;
 
-export const createPoliticalJobSchema = z.object({
-  projectName: z.string().min(1, "Required"),
-  reportingPersonName: z.string().optional(),
-  reportingPersonWhatsapp: z.string().optional(),
-  reportingGroupName: z.string().optional(),
-  instagramPages: z.string().optional(),
-  currentFollowers: z.string().optional(),
-  openingViews: z.string().optional(),
-  monthlyViewsTarget: z.string().optional(),
-  remarks: z.string().optional(),
+// Job Cards are created against an existing Project Order (see
+// PoliticalProjectOrder model) via a "News Picking" intake — one submission
+// picks 1-10 news topics, each becoming its own bare Job Card row (sitting
+// Pending at JOB_CARD_PLANNING) with its topic pre-filled onto `ideaDetails`.
+// The remaining planning fields (content type, planned date, editor) are
+// still submitted per-card afterward via the existing, unchanged
+// jobCardPlanningSchema + advanceStage() flow, not at creation time.
+export const createJobCardsBatchSchema = z.object({
+  politicalProjectOrderId: z.number().int().positive("Project Order is required"),
+  topics: z.array(z.string().trim().min(1)).min(1, "At least one news topic is required").max(10),
 });
 
-export type CreatePoliticalJobInput = z.infer<typeof createPoliticalJobSchema>;
+export type CreateJobCardsBatchInput = z.infer<typeof createJobCardsBatchSchema>;
