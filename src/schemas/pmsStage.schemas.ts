@@ -41,19 +41,26 @@ export type PmsStageName = (typeof PMS_STAGE_ORDER)[number];
 // behind a confirmation dialog before submitting, since it ends the job's
 // active pipeline), "No" proceeds to Editing as before. See DECISIONS.md.
 export const pmsStageTransitions: Record<PmsStageName, (data: Record<string, unknown>) => PmsStageName | null> = {
-  REPORTING_CHECK: () => "DURING_SHOOT_FEEDBACK",
-  DURING_SHOOT_FEEDBACK: () => "AFTER_SHOOT_CONFIRMATION",
-  AFTER_SHOOT_CONFIRMATION: () => "DATA_COLLECTION",
-  DATA_COLLECTION: () => "DATA_QUALITY_CHECK",
+  REPORTING_CHECK: (data) => (data.status1 === "Pending" ? "REPORTING_CHECK" : "DURING_SHOOT_FEEDBACK"),
+  DURING_SHOOT_FEEDBACK: (data) => (data.status2 === "Pending" ? "DURING_SHOOT_FEEDBACK" : "AFTER_SHOOT_CONFIRMATION"),
+  AFTER_SHOOT_CONFIRMATION: (data) => (data.afterShootStatus === "Pending" ? "AFTER_SHOOT_CONFIRMATION" : "DATA_COLLECTION"),
+  DATA_COLLECTION: (data) => (data.dataUploadStatus === "Pending" ? "DATA_COLLECTION" : "DATA_QUALITY_CHECK"),
   DATA_QUALITY_CHECK: (data) => (data.reshootRequired === "Yes" ? "RESHOOT_CLOSED" : "EDITING"),
   RESHOOT_CLOSED: () => null,
-  EDITING: () => "EDITING_QC",
-  EDITING_QC: (data) => (data.qcApproval === "Approved" ? "WATERMARK_DELIVERY" : "RE_EDIT"),
-  RE_EDIT: () => "RE_EDIT_QC",
-  RE_EDIT_QC: (data) => (data.reEditQCClosureStatus === "Closed (Done)" ? "WATERMARK_DELIVERY" : "RE_EDIT"),
+  EDITING: (data) => (data.finalEditingStatus === "In Progress" ? "EDITING" : "EDITING_QC"),
+  EDITING_QC: (data) => {
+    if (data.editQCStatus === "No") return "EDITING_QC";
+    return data.qcApproval === "Approved" ? "WATERMARK_DELIVERY" : "RE_EDIT";
+  },
+  RE_EDIT: (data) => (data.finalReEditingStatus === "Pending" ? "RE_EDIT" : "RE_EDIT_QC"),
+  RE_EDIT_QC: (data) => {
+    if (data.reEditQCStatus === "Pending") return "RE_EDIT_QC";
+    return data.reEditQCClosureStatus === "Closed (Done)" ? "WATERMARK_DELIVERY" : "RE_EDIT";
+  },
   WATERMARK_DELIVERY: () => "PAYMENT_COLLECTION",
-  PAYMENT_COLLECTION: () => "FINAL_DELIVERY",
-  FINAL_DELIVERY: () => "COMPLETED",
+  PAYMENT_COLLECTION: (data) =>
+    data.paymentStatus === "Pending" || data.financeConfirmation === "Pending" ? "PAYMENT_COLLECTION" : "FINAL_DELIVERY",
+  FINAL_DELIVERY: (data) => (data.deliveryFinalStatus === "Pending" ? "FINAL_DELIVERY" : "COMPLETED"),
   COMPLETED: () => null,
 };
 

@@ -7,6 +7,9 @@ import {
   adminDoneSchema,
   leaveSchema,
   checklistStatsQuerySchema,
+  previewQuerySchema,
+  transferredInQuerySchema,
+  leaveLogsQuerySchema,
 } from "../schemas/checklist.schemas";
 
 export const checklistController = {
@@ -22,6 +25,36 @@ export const checklistController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch checklist", e.status ?? 500);
+    }
+  },
+
+  async getTransferredIn(req: Request, res: Response): Promise<void> {
+    try {
+      const query = transferredInQuerySchema.parse(req.query);
+      const result = await checklistService.getTransferredIn(
+        query,
+        req.user!.userId,
+        req.user!.role
+      );
+      sendSuccess(res, result, "Transferred-in tasks fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch transferred-in tasks", e.status ?? 500);
+    }
+  },
+
+  async previewUpcoming(req: Request, res: Response): Promise<void> {
+    try {
+      const query = previewQuerySchema.parse(req.query);
+      const result = await checklistService.previewUpcoming(
+        query,
+        req.user!.userId,
+        req.user!.role
+      );
+      sendSuccess(res, result, "Upcoming tasks previewed");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to preview upcoming tasks", e.status ?? 400);
     }
   },
 
@@ -60,7 +93,8 @@ export const checklistController = {
       const departmentId = req.query.departmentId ? Number(req.query.departmentId) : undefined;
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-      const stats = await checklistService.getStaffStats({ startDate, endDate, departmentId });
+      const userId = req.query.userId ? Number(req.query.userId) : undefined;
+      const stats = await checklistService.getStaffStats({ startDate, endDate, departmentId, userId });
       sendSuccess(res, stats, "Staff stats fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -117,6 +151,17 @@ export const checklistController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to mark leave", e.status ?? 400);
+    }
+  },
+
+  async getLeaveLogs(req: Request, res: Response): Promise<void> {
+    try {
+      const query = leaveLogsQuerySchema.parse(req.query);
+      const logs = await checklistService.getLeaveLogs(query, req.user!.userId, req.user!.role);
+      sendSuccess(res, logs, "Leave logs fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch leave logs", e.status ?? 500);
     }
   },
 

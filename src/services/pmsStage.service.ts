@@ -17,7 +17,19 @@ export const pmsStageService = {
     }
 
     const [data, total] = await Promise.all([
-      prisma.pipelineJob.findMany({ where, skip, take, orderBy: { updatedAt: "desc" } }),
+      prisma.pipelineJob.findMany({ 
+        where, 
+        skip, 
+        take, 
+        orderBy: { updatedAt: "desc" },
+        include: {
+          stageEvents: {
+            where: { stage },
+            orderBy: { id: "desc" },
+            take: 1,
+          },
+        },
+      }),
       prisma.pipelineJob.count({ where }),
     ]);
 
