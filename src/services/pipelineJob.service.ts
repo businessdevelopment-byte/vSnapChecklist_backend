@@ -32,6 +32,7 @@ export const pipelineJobService = {
         jobShootAddress: otpJob.jobShootAddress,
         jobSpecification: otpJob.jobSpecification,
         deliverables: otpJob.deliverables,
+        assignedMember: otpJob.assignedMember,
         currentStage: "REPORTING_CHECK",
       } satisfies Prisma.PipelineJobUncheckedCreateInput,
     });
