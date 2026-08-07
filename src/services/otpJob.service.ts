@@ -25,7 +25,7 @@ function nullIfBlank(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function mapExternalJob(job: ExternalOtpJob): Prisma.OtpJobCreateManyInput {
+export function mapExternalJob(job: ExternalOtpJob): Prisma.OtpJobCreateManyInput {
   return {
     jobId: job.jobId,
     projectId: job.projectId,
