@@ -449,11 +449,18 @@ export const checklistService = {
       where.actualDate = null;
       where.adminDone = false;
       where.leaveStatus = false;
-      // Merge into (not replace) the date-range filter set above, so an
-      // explicit startDate/endDate still narrows the "before today" cutoff
-      // instead of being silently discarded.
+      // Overdue means "before today" — carry over an explicit lower bound
+      // (so "overdue since X" still narrows correctly), but never the upper
+      // bound the generic date-range block above just set: the frontend's
+      // default filter is startDate=endDate=today, and merging that {gte:
+      // today, lte: today} with `lt: today` produced an impossible range
+      // (>= today AND < today), silently making "Overdue" always return 0.
+      const overdueLowerBound =
+        typeof where.taskStartDate === "object" && where.taskStartDate && "gte" in where.taskStartDate
+          ? where.taskStartDate.gte
+          : undefined;
       where.taskStartDate = {
-        ...(typeof where.taskStartDate === "object" ? where.taskStartDate : {}),
+        ...(overdueLowerBound ? { gte: overdueLowerBound } : {}),
         lt: targetDate,
       };
     } else if (query.status === "leave") {
@@ -696,20 +703,24 @@ export const checklistService = {
     ]);
 
     const pending = total - completed;
+    // Overdue means "before today" — carry over baseWhere's lower bound (if
+    // the caller passed an explicit startDate), but never its upper bound:
+    // when startDate/endDate defaults to today=today (as the Checklist page
+    // always sends), merging that {gte: today, lte: today} with `lt: today`
+    // is an impossible range, silently zeroing this badge every time.
+    // Mirrors the identical fix in getEntries' "overdue" status branch.
+    const overdueLowerBound =
+      typeof baseWhere.taskStartDate === "object" && baseWhere.taskStartDate && "gte" in baseWhere.taskStartDate
+        ? baseWhere.taskStartDate.gte
+        : undefined;
     const overdue = await prisma.checklistEntry.count({
       where: {
         ...baseWhere,
         actualDate: null,
         adminDone: false,
         leaveStatus: false,
-        // Merge into (not replace) baseWhere's own taskStartDate, so an explicit
-        // startDate/endDate still narrows the "before today" cutoff instead of
-        // being silently discarded — otherwise this badge shows an unscoped
-        // all-time overdue count that disagrees with what the Overdue tab's
-        // own (date-range-aware) list actually returns for the same filter.
-        // Mirrors getEntries' identical merge for its "overdue" status branch.
         taskStartDate: {
-          ...(typeof baseWhere.taskStartDate === "object" ? baseWhere.taskStartDate : {}),
+          ...(overdueLowerBound ? { gte: overdueLowerBound } : {}),
           lt: today,
         },
       },
