@@ -15,6 +15,9 @@ export const pmsStageService = {
         { client: { contains: query.search, mode: "insensitive" } },
       ];
     }
+    if (query.assignedMember) {
+      where.assignedMember = { contains: query.assignedMember, mode: "insensitive" };
+    }
 
     const [data, total] = await Promise.all([
       prisma.pipelineJob.findMany({ 
@@ -39,19 +42,18 @@ export const pmsStageService = {
   async listHistory(stage: PmsStageName, query: PmsStageListQueryInput) {
     const { skip, take, page, limit } = getPaginationParams(query);
 
-    const where: Prisma.PipelineStageEventWhereInput = {
-      stage,
-      pipelineJob: { pipelineType: PipelineType.PMS },
-    };
+    const pipelineJobWhere: Prisma.PipelineJobWhereInput = { pipelineType: PipelineType.PMS };
     if (query.search) {
-      where.pipelineJob = {
-        pipelineType: PipelineType.PMS,
-        OR: [
-          { jobId: { contains: query.search, mode: "insensitive" } },
-          { client: { contains: query.search, mode: "insensitive" } },
-        ],
-      };
+      pipelineJobWhere.OR = [
+        { jobId: { contains: query.search, mode: "insensitive" } },
+        { client: { contains: query.search, mode: "insensitive" } },
+      ];
     }
+    if (query.assignedMember) {
+      pipelineJobWhere.assignedMember = { contains: query.assignedMember, mode: "insensitive" };
+    }
+
+    const where: Prisma.PipelineStageEventWhereInput = { stage, pipelineJob: pipelineJobWhere };
 
     const [events, total] = await Promise.all([
       prisma.pipelineStageEvent.findMany({
@@ -73,6 +75,19 @@ export const pmsStageService = {
     }));
 
     return { data, pagination: buildPaginationMeta(total, page, limit) };
+  },
+
+  // Feeds the "Assigned Member" filter dropdown on every PMS stage page.
+  // Scoped to PMS jobs so the list only offers members who actually appear
+  // here, rather than every member OTP has ever assigned.
+  async listDistinctAssignedMembers(): Promise<string[]> {
+    const rows = await prisma.pipelineJob.findMany({
+      where: { pipelineType: PipelineType.PMS, assignedMember: { not: null } },
+      distinct: ["assignedMember"],
+      select: { assignedMember: true },
+      orderBy: { assignedMember: "asc" },
+    });
+    return rows.map((r) => r.assignedMember!).filter((name) => name.trim().length > 0);
   },
 
   async advanceStage(jobId: number, rawData: Record<string, unknown>, actorUserId: number) {

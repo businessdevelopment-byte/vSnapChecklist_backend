@@ -364,6 +364,10 @@ model OtpJob {
   gst                  Decimal         @db.Decimal(12, 2)
   packageAmountWithTax Decimal         @db.Decimal(12, 2)
   isTokenReceived      Boolean         @default(false)
+  // Denormalized from the ASSIGN_MEMBER stage event so every stage's
+  // Pending/History list can filter by member. A free-text vsnapu stakeholder
+  // name, not a User FK — the upstream feed has no user identity to link to.
+  assignedMember       String?
   currentStage         OtpJobStage     @default(ORDER_RECEIVED)
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
@@ -372,6 +376,7 @@ model OtpJob {
   @@index([currentStage])
   @@index([jobDate])
   @@index([projectId])
+  @@index([assignedMember])
   @@map("otp_jobs")
 }
 
@@ -430,6 +435,10 @@ model PipelineJob {
   voiceoverPersonName    String?
   projectCoordinatorName String?
   pcEmail                String?
+  // Carried over from the originating OtpJob at the OTP -> PMS hand-off, so
+  // PMS's stage lists can filter by the same member OTP assigned. Unused by
+  // Political, which has no Assign Member stage.
+  assignedMember         String?
   currentStage           String
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
@@ -444,6 +453,7 @@ model PipelineJob {
 
   @@index([pipelineType, currentStage])
   @@index([politicalProjectOrderId])
+  @@index([assignedMember])
   @@map("pipeline_jobs")
 }
 

@@ -21,9 +21,10 @@ export const otpStageService = {
     if (query.jobId) where.jobId = { contains: query.jobId, mode: "insensitive" };
     if (query.projectId) where.projectId = { contains: query.projectId, mode: "insensitive" };
     if (query.poc) where.pocName = { contains: query.poc, mode: "insensitive" };
+    if (query.assignedMember) where.assignedMember = { contains: query.assignedMember, mode: "insensitive" };
 
     const [data, total] = await Promise.all([
-      prisma.otpJob.findMany({ 
+      prisma.otpJob.findMany({
         where, 
         skip, 
         take, 
@@ -57,15 +58,10 @@ export const otpStageService = {
     if (query.jobId) otpJobWhere.jobId = { contains: query.jobId, mode: "insensitive" };
     if (query.projectId) otpJobWhere.projectId = { contains: query.projectId, mode: "insensitive" };
     if (query.poc) otpJobWhere.pocName = { contains: query.poc, mode: "insensitive" };
-    if (Object.keys(otpJobWhere).length > 0) where.otpJob = otpJobWhere;
-
-    // assignedMember only exists inside ASSIGN_MEMBER's own event data (see
-    // listDistinctAssignedMembers below) — filtering by it on any other
-    // stage's history would silently match nothing, so it's scoped here
-    // rather than accepted everywhere.
-    if (query.assignedMember && stage === "ASSIGN_MEMBER") {
-      where.data = { path: ["assignedMember"], string_contains: query.assignedMember, mode: "insensitive" };
+    if (query.assignedMember) {
+      otpJobWhere.assignedMember = { contains: query.assignedMember, mode: "insensitive" };
     }
+    if (Object.keys(otpJobWhere).length > 0) where.otpJob = otpJobWhere;
 
     const [events, total] = await Promise.all([
       prisma.otpStageEvent.findMany({
@@ -89,22 +85,17 @@ export const otpStageService = {
     return { data, pagination: buildPaginationMeta(total, page, limit) };
   },
 
-  // Distinct assignedMember values recorded across every ASSIGN_MEMBER stage
-  // event — feeds that page's own "Assigned Member" filter dropdown. Can't
-  // use Prisma's `distinct` (that only works on real columns, not JSON path
-  // values), so this fetches the (bounded-by-total-jobs-ever-assigned) set of
-  // event payloads and dedupes the field in JS instead.
+  // Feeds the "Assigned Member" filter dropdown on every OTP stage page.
+  // Reads the denormalized column rather than scanning every ASSIGN_MEMBER
+  // event's JSON payload, which is what this used to have to do.
   async listDistinctAssignedMembers(): Promise<string[]> {
-    const events = await prisma.otpStageEvent.findMany({
-      where: { stage: "ASSIGN_MEMBER" },
-      select: { data: true },
+    const rows = await prisma.otpJob.findMany({
+      where: { assignedMember: { not: null } },
+      distinct: ["assignedMember"],
+      select: { assignedMember: true },
+      orderBy: { assignedMember: "asc" },
     });
-    const names = new Set<string>();
-    for (const event of events) {
-      const value = (event.data as Record<string, unknown>)?.assignedMember;
-      if (typeof value === "string" && value.trim()) names.add(value.trim());
-    }
-    return Array.from(names).sort();
+    return rows.map((r) => r.assignedMember!).filter((name) => name.trim().length > 0);
   },
 
   async advanceStage(jobId: number, rawData: Record<string, unknown>, actorUserId: number) {
@@ -125,7 +116,19 @@ export const otpStageService = {
     const stageEventCreate = prisma.otpStageEvent.create({
       data: { otpJobId: job.id, stage: currentStage, data: parsed as Prisma.InputJsonValue, actorUserId },
     });
-    const jobUpdate = prisma.otpJob.update({ where: { id: job.id }, data: { currentStage: next } });
+
+    // Denormalize the assigned member onto the job itself so every later
+    // stage can filter by it — it's only ever collected here, and reading it
+    // back out of this stage's event JSON isn't filterable elsewhere.
+    const assignedMember =
+      currentStage === "ASSIGN_MEMBER"
+        ? (parsed as { assignedMember?: string }).assignedMember?.trim() || undefined
+        : undefined;
+
+    const jobUpdate = prisma.otpJob.update({
+      where: { id: job.id },
+      data: { currentStage: next, ...(assignedMember ? { assignedMember } : {}) },
+    });
 
     // Hand off to PMS the moment an order finishes the entire OTP pipeline —
     // creates the PipelineJob that PMS's Reporting Check pending queue reads.

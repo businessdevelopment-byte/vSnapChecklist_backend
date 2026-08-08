@@ -289,6 +289,9 @@ export const pmsStageListQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(500).default(100),
   search: z.string().optional(),
+  // Carried onto PipelineJob from the originating OtpJob at the OTP -> PMS
+  // hand-off, so it filters on every PMS stage the same way it does in OTP.
+  assignedMember: z.string().optional(),
 });
 
 export type PmsStageListQueryInput = z.infer<typeof pmsStageListQuerySchema>;

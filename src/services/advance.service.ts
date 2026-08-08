@@ -43,6 +43,27 @@ interface AdvanceJobDetails {
 // the Job Master feed from this same floor date.
 const HISTORICAL_FLOOR_DATE = "2000-01-01";
 
+// A job's advance/token payment is taken at booking time, unrelated to the
+// job's own jobDate — it can be received weeks before or after. Checking
+// only the user's displayed [fromDate,toDate] window for "has this jobId
+// ever been paid" is the same narrow-lookback bug class already found and
+// fixed for Photographer Allotment / Editor Allotments / Raw Data QC (see
+// docs/migration/.claude/context/KNOWN_ISSUES_AND_DEVIATIONS.md #31) — reuse
+// that fix's shape here rather than a full HISTORICAL_FLOOR_DATE scan, since
+// 90 days safely covers the booking-to-shoot lead time already proven
+// sufficient there.
+const RECEIVED_LOOKBACK_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const toDateOnly = (d: Date) => d.toISOString().slice(0, 10);
+
+function receivedMatchWindow(fromDate: string, toDate: string) {
+  const now = Date.now();
+  return {
+    from: toDateOnly(new Date(Math.min(new Date(fromDate).getTime(), now - RECEIVED_LOOKBACK_DAYS * DAY_MS))),
+    to: toDateOnly(new Date(Math.max(new Date(toDate).getTime(), now))),
+  };
+}
+
 // The full Job Master history feed is tens of MB and grows every day. Every
 // Token entry whose jobId isn't in our local otp_jobs table yet (routine for
 // a live feed — see the comment below) triggered a full re-download +
@@ -106,8 +127,21 @@ export const advanceService = {
   },
 
   async getSummary(fromDate: string, toDate: string) {
-    const benchmarks = await this.fetchPaymentBenchmarks(fromDate, toDate);
+    const window = receivedMatchWindow(fromDate, toDate);
+
+    const [benchmarks, widenedBenchmarks, localJobsInRange] = await Promise.all([
+      this.fetchPaymentBenchmarks(fromDate, toDate),
+      this.fetchPaymentBenchmarks(window.from, window.to),
+      prisma.otpJob.findMany({
+        where: { jobDate: { gte: new Date(fromDate), lte: new Date(toDate) } },
+        orderBy: { jobDate: "asc" },
+      }),
+    ]);
+
     const tokenEntries = benchmarks.filter((b) => b.category.trim().toLowerCase() === "token");
+    const receivedJobIds = new Set(
+      widenedBenchmarks.filter((b) => b.category.trim().toLowerCase() === "token").map((b) => b.jobId)
+    );
 
     const jobIds = [...new Set(tokenEntries.map((e) => e.jobId))];
     const jobDetailsByJobId = new Map<string, AdvanceJobDetails>();
@@ -221,6 +255,15 @@ export const advanceService = {
       .map((group) => ({ ...group, jobCount: new Set(group.entries.map((e) => e.jobId)).size }))
       .sort((a, b) => a.projectId.localeCompare(b.projectId));
 
-    return { projects, unmatched };
+    // Every local job scheduled in this window that never shows up as having
+    // received an advance in the widened match window above — "how much job
+    // order is left from the advance". Deliberately not filtered by
+    // isTokenReceived (schema.prisma's OtpJob.isTokenReceived): that's a
+    // one-time snapshot of vsnapu's own field captured only at import/create
+    // time, never updated afterward, and not what the rest of this service
+    // trusts for matching.
+    const pendingAdvance = localJobsInRange.filter((job) => !receivedJobIds.has(job.jobId));
+
+    return { projects, unmatched, pendingAdvance };
   },
 };
