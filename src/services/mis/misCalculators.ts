@@ -42,11 +42,10 @@ const checklistDelegationCalculator: MisCalculator = {
     // Push userId down into every query instead of computing org-wide stats
     // and discarding all but one row — a non-admin's own dashboard shouldn't
     // pay the cost of scanning every other user's data.
-    const [checklistWeek, delegationWeek, delegationOnTime, checklistCumulative, delegationCumulative] =
+    const [checklistWeek, delegationWeek, checklistCumulative, delegationCumulative] =
       await Promise.all([
         checklistService.getStaffStats({ startDate: weekStart, endDate: weekEnd, userId }),
         delegationService.getMisStaffStats({ startDate: weekStartISO, endDate: weekEndISO, userId }),
-        delegationService.getOnTimeCounts({ startDate: weekStartISO, endDate: weekEndISO, userId }),
         // Both start+end passed (epoch..weekEnd) so checklist's stricter
         // branching (it only honors a custom range when BOTH are set,
         // otherwise defaults to "today") applies our exact cutoff instead.
@@ -54,7 +53,6 @@ const checklistDelegationCalculator: MisCalculator = {
         delegationService.getMisStaffStats({ endDate: weekEndISO, userId }),
       ]);
 
-    const onTimeByUser = new Map(delegationOnTime.map((r) => [r.userId, r.onTime]));
     const cumulativePendingByUser = new Map<number, number>();
     const cumulativeCompletedByUser = new Map<number, number>();
     for (const s of checklistCumulative) {
@@ -84,7 +82,7 @@ const checklistDelegationCalculator: MisCalculator = {
       const acc = ensure(s.userId);
       acc.actual += s.done;
       acc.completed += s.done;
-      acc.onTime += onTimeByUser.get(s.userId) ?? 0;
+      acc.onTime += s.onTime;
       acc.weekPending += s.pending;
     }
 

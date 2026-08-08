@@ -733,9 +733,17 @@ export const checklistService = {
   async getStaffStats(params?: { startDate?: Date; endDate?: Date; departmentId?: number; userId?: number }) {
     const today = new Date();
     today.setUTCHours(23, 59, 59, 999);
-    const now = toUtcDay(new Date());
 
     const { startDate, endDate, departmentId, userId } = params ?? {};
+    // Loan-active status is evaluated as of the end of the window being
+    // queried, not real "today" — a historical week/range's stats should
+    // reflect who held a task during THAT period, not who holds it as of
+    // whenever this happens to be called. Capped at today (never look into
+    // the future) so an in-progress week (endDate = its own not-yet-arrived
+    // Sunday) still reflects live, current ownership rather than a
+    // not-yet-happened loan expiry — only genuinely past weeks are affected.
+    const now = toUtcDay(new Date());
+    const asOf = endDate ? new Date(Math.min(toUtcDay(endDate).getTime(), now.getTime())) : now;
 
     // No assignedUserId/userId filter here — a task on loan to `userId` won't
     // have assignedUserId === userId, so filtering by userId at the query
@@ -775,7 +783,7 @@ export const checklistService = {
       // the permanent assignee — otherwise the receiving staff member's
       // totals never reflect work they're actually holding/doing, and the
       // original assignee gets credited for work they didn't do.
-      const isOnLoan = e.transferredToId != null && e.transferValidUntil != null && e.transferValidUntil >= now;
+      const isOnLoan = e.transferredToId != null && e.transferValidUntil != null && e.transferValidUntil >= asOf;
       const ownerId = isOnLoan ? e.transferredToId! : e.assignedUserId;
       if (userId != null && ownerId !== userId) continue;
 

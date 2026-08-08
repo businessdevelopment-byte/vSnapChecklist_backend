@@ -124,6 +124,15 @@ export const misService = {
       getWeekBounds(addWeeks(currentWeekStart, -i))
     );
 
+    // Week index 0 above is the current, still-in-progress week — History's
+    // most recent row needs today's entries materialized exactly like
+    // getDashboard() already does, or opening History first (before ever
+    // opening Dashboard/the Checklist page) undercounts today's contribution
+    // to that row. See docs/migration/DECISIONS.md.
+    if (params.systemKey === "CHECKLIST_DELEGATION") {
+      await materializeChecklistForToday(params.userId);
+    }
+
     const calculator = misCalculators[params.systemKey];
     const [perWeekActuals, targets] = await Promise.all([
       Promise.all(weeks.map((w) => calculator.computeBulk(w.weekStart, w.weekEnd, params.userId))),

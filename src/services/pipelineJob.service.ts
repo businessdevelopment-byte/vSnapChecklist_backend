@@ -51,7 +51,7 @@ export const pipelineJobService = {
   // content projects, not client jobs) — `client` is set to the parent
   // Project Order's `projectName` so every pipelineType still has one
   // consistent "what is this row" display field — see docs/migration/DECISIONS.md.
-  async createJobCardsBatch(input: CreateJobCardsBatchInput, _actorUserId: number) {
+  async createJobCardsBatch(input: CreateJobCardsBatchInput, actorUserId: number) {
     const projectOrder = await prisma.politicalProjectOrder.findUnique({
       where: { id: input.politicalProjectOrderId },
     });
@@ -65,19 +65,31 @@ export const pipelineJobService = {
         const sequence = (await tx.pipelineJob.count({ where: { pipelineType: PipelineType.POLITICAL } })) + 1;
         const jobId = `JCD-${String(sequence).padStart(5, "0")}`;
 
-        created.push(
-          await tx.pipelineJob.create({
-            data: {
-              pipelineType: PipelineType.POLITICAL,
-              jobId,
-              client: projectOrder.projectName,
-              projectName: projectOrder.projectName,
-              politicalProjectOrderId: input.politicalProjectOrderId,
-              ideaDetails: topic,
-              currentStage: "JOB_CARD_PLANNING",
-            } satisfies Prisma.PipelineJobUncheckedCreateInput,
-          })
-        );
+        const job = await tx.pipelineJob.create({
+          data: {
+            pipelineType: PipelineType.POLITICAL,
+            jobId,
+            client: projectOrder.projectName,
+            projectName: projectOrder.projectName,
+            politicalProjectOrderId: input.politicalProjectOrderId,
+            ideaDetails: topic,
+            currentStage: "JOB_CARD_PLANNING",
+          } satisfies Prisma.PipelineJobUncheckedCreateInput,
+        });
+
+        // News Picking is real, attributable user work (unlike OTP/PMS's
+        // feed-driven intake), but it lands the job straight at
+        // JOB_CARD_PLANNING without going through advanceStage() — so
+        // without this, whoever did the News Picking gets zero MIS credit
+        // for it. "JOB_CARDS_CREATED" is a synthetic stage name (not a real
+        // PoliticalStageName) used only for MIS attribution — it's never
+        // queried by politicalStageService's Pending/History views (those
+        // filter by real stage names), so it can't leak into the pipeline UI.
+        await tx.pipelineStageEvent.create({
+          data: { pipelineJobId: job.id, stage: "JOB_CARDS_CREATED", data: { topic }, actorUserId },
+        });
+
+        created.push(job);
       }
       return created;
     });

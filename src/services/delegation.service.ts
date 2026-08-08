@@ -406,10 +406,25 @@ export const delegationService = {
         assignedUserId: true,
         status: true,
         assignedUser: { select: { username: true, email: true } },
+        // The latest approved "Done" submission's on-time flag — the same
+        // submission that actually flipped this task's status to DONE (see
+        // approveSubmission()). A task can also carry an earlier REJECTED
+        // "Done" attempt; only the approved one represents real completion.
+        // Bucketing this by the task's own taskStartDate (the same filter
+        // `where` above already applies) instead of a separate query keyed
+        // to DelegationHistory.submissionDate avoids a numerator/denominator
+        // mismatch — see docs/migration/DECISIONS.md, "on-time % could read
+        // over 100%".
+        history: {
+          where: { status: "DONE", reviewStatus: "APPROVED" },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { isLate: true },
+        },
       },
     });
 
-    const map = new Map<number, { username: string; email: string; total: number; done: number }>();
+    const map = new Map<number, { username: string; email: string; total: number; done: number; onTime: number }>();
     for (const t of tasks) {
       if (!map.has(t.assignedUserId)) {
         map.set(t.assignedUserId, {
@@ -417,11 +432,15 @@ export const delegationService = {
           email: t.assignedUser.email ?? "",
           total: 0,
           done: 0,
+          onTime: 0,
         });
       }
       const s = map.get(t.assignedUserId)!;
       s.total++;
-      if (t.status === "DONE") s.done++;
+      if (t.status === "DONE") {
+        s.done++;
+        if (t.history[0]?.isLate === false) s.onTime++;
+      }
     }
 
     return Array.from(map.entries())
@@ -431,32 +450,11 @@ export const delegationService = {
         email: s.email,
         total: s.total,
         done: s.done,
+        onTime: s.onTime,
         pending: s.total - s.done,
         progress: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0,
       }))
       .sort((a, b) => b.progress - a.progress);
-  },
-
-  // MIS on-time metric — separate from getMisStaffStats because "on time"
-  // is a property of a submission (DelegationHistory.isLate), not of the
-  // task itself (DelegationTask has no due-date-vs-completion comparison).
-  async getOnTimeCounts(query: Pick<DelegationMisQueryInput, "startDate" | "endDate"> & { userId?: number }) {
-    const where: Prisma.DelegationHistoryWhereInput = {};
-    if (query.startDate || query.endDate) {
-      where.submissionDate = {
-        ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
-        ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
-      };
-    }
-    if (query.userId != null) where.submittedByUserId = query.userId;
-
-    const rows = await prisma.delegationHistory.groupBy({
-      by: ["submittedByUserId"],
-      where: { ...where, isLate: false },
-      _count: true,
-    });
-
-    return rows.map((r) => ({ userId: r.submittedByUserId, onTime: r._count }));
   },
 
   async getStatusCounts(userId: number | undefined, requesterRole: string, requesterId: number) {
