@@ -5,6 +5,28 @@ import { otpStageService } from "./otpStage.service";
 import { parseArrayLenient } from "../utils/externalApi";
 import { externalOpsAllotmentSchema, type ExternalOpsAllotment } from "../schemas/opsAllotment.schemas";
 
+// A job's member is routinely allotted weeks before the job reaches this
+// stage, so matching against only the range the user happens to be viewing
+// silently leaves it stuck at ASSIGN_MEMBER forever. 90 days matches the
+// lookback already proven necessary for the Editor Allotments / Raw Data QC /
+// Photographer Allotments feeds; 7 days was proven unsafe there for exactly
+// this reason.
+const MATCH_LOOKBACK_DAYS = 90;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const toDateOnly = (d: Date) => d.toISOString().slice(0, 10);
+
+// The displayed range only drives the "All vsnapu Allotments" table. Matching
+// always covers at least the last 90 days, widened further if the user is
+// looking further back, so a wider range can only ever help.
+function matchWindow(fromDate: string, toDate: string) {
+  const now = Date.now();
+  return {
+    from: toDateOnly(new Date(Math.min(new Date(fromDate).getTime(), now - MATCH_LOOKBACK_DAYS * DAY_MS))),
+    to: toDateOnly(new Date(Math.max(new Date(toDate).getTime(), now))),
+  };
+}
+
 export const opsAllotmentService = {
   async fetchCreatedBetween(fromDate: string, toDate: string): Promise<ExternalOpsAllotment[]> {
     const url = new URL("/api/public/ops-allotments", env.VSNAPU_JOB_MASTER_BASE_URL);
@@ -26,7 +48,8 @@ export const opsAllotmentService = {
   },
 
   async applyCreatedBetween(fromDate: string, toDate: string, actorUserId: number) {
-    const allotments = await this.fetchCreatedBetween(fromDate, toDate);
+    const window = matchWindow(fromDate, toDate);
+    const allotments = await this.fetchCreatedBetween(window.from, window.to);
 
     // A job can appear more than once (re-assignment) — keep only the latest
     // allotment per jobId before applying.
