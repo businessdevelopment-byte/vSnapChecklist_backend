@@ -449,20 +449,16 @@ export const checklistService = {
       where.actualDate = null;
       where.adminDone = false;
       where.leaveStatus = false;
-      // Overdue means "before today" — carry over an explicit lower bound
-      // (so "overdue since X" still narrows correctly), but never the upper
-      // bound the generic date-range block above just set: the frontend's
-      // default filter is startDate=endDate=today, and merging that {gte:
-      // today, lte: today} with `lt: today` produced an impossible range
-      // (>= today AND < today), silently making "Overdue" always return 0.
-      const overdueLowerBound =
-        typeof where.taskStartDate === "object" && where.taskStartDate && "gte" in where.taskStartDate
-          ? where.taskStartDate.gte
-          : undefined;
-      where.taskStartDate = {
-        ...(overdueLowerBound ? { gte: overdueLowerBound } : {}),
-        lt: targetDate,
-      };
+      // Overdue always means "before today," full stop — it ignores the
+      // generic date-range block above entirely (both bounds, not just the
+      // upper one), because that range describes a different page state
+      // (which day's snapshot the other tabs are showing) that has nothing
+      // to do with what's overdue. Previously this carried over the range's
+      // lower bound if present, which silently made "Overdue" always return
+      // 0 under the page's own default filter (startDate=endDate=today
+      // merges to an impossible {gte: today, lt: today}), correct only by
+      // coincidence when something else had cleared startDate first.
+      where.taskStartDate = { lt: targetDate };
     } else if (query.status === "leave") {
       where.leaveStatus = true;
     } else if (query.status === "admin_done") {
@@ -703,26 +699,22 @@ export const checklistService = {
     ]);
 
     const pending = total - completed;
-    // Overdue means "before today" — carry over baseWhere's lower bound (if
-    // the caller passed an explicit startDate), but never its upper bound:
-    // when startDate/endDate defaults to today=today (as the Checklist page
-    // always sends), merging that {gte: today, lte: today} with `lt: today`
-    // is an impossible range, silently zeroing this badge every time.
-    // Mirrors the identical fix in getEntries' "overdue" status branch.
-    const overdueLowerBound =
-      typeof baseWhere.taskStartDate === "object" && baseWhere.taskStartDate && "gte" in baseWhere.taskStartDate
-        ? baseWhere.taskStartDate.gte
-        : undefined;
+    // Overdue always means "before today," full stop — it ignores
+    // baseWhere's taskStartDate bounds entirely (both, not just the upper
+    // one), same reasoning as getEntries' "overdue" branch: that range
+    // describes which day's snapshot the other four counts above are using,
+    // which has nothing to do with what's overdue. Previously this carried
+    // over baseWhere's lower bound if present, which silently zeroed this
+    // badge under the page's own default filter (startDate=endDate=today
+    // merges to an impossible {gte: today, lt: today}) unless something else
+    // had cleared it first.
     const overdue = await prisma.checklistEntry.count({
       where: {
         ...baseWhere,
         actualDate: null,
         adminDone: false,
         leaveStatus: false,
-        taskStartDate: {
-          ...(overdueLowerBound ? { gte: overdueLowerBound } : {}),
-          lt: today,
-        },
+        taskStartDate: { lt: today },
       },
     });
 
