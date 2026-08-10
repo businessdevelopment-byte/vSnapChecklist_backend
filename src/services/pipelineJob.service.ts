@@ -38,19 +38,21 @@ export const pipelineJobService = {
     });
   },
 
-  // Job Cards is Political's own intake stage, entered via "News Picking":
-  // one submission picks 1-10 news topics for an existing PoliticalProjectOrder
-  // (many Job Cards can share one Project Order — see PoliticalProjectOrder
-  // model), creating one bare Job Card per topic, each sitting PENDING at
-  // JOB_CARD_PLANNING with its topic pre-filled onto `ideaDetails`. The
-  // remaining planning fields (contentType, plannedDate, editorName) are
-  // filled in afterward via the existing, unchanged Job Card Planning form +
-  // advanceStage() flow, exactly like every other stage in this pipeline
-  // (create -> Pending -> open -> submit -> advance), not skipped straight
-  // to History. Political has no "client" concept in the source (it tracks
-  // content projects, not client jobs) — `client` is set to the parent
-  // Project Order's `projectName` so every pipelineType still has one
-  // consistent "what is this row" display field — see docs/migration/DECISIONS.md.
+  // Job Cards is Political's own intake stage, entered via "Add Job Card":
+  // the 5 batch-level fields (plannedDate/contentType/voiceover/editorName/
+  // projectCoordinatorName) are the card's real content, filled in up front.
+  // Job Cards sit PENDING at JOB_CARD_PLANNING; `ideaDetails`/topic itself is
+  // still filled in afterward via the existing, unchanged Job Card Planning
+  // form + advanceStage() flow, exactly like every other stage in this
+  // pipeline (create -> Pending -> open -> submit -> advance), not skipped
+  // straight to History. `topics` is a legacy, optional escape hatch — when
+  // empty (the normal case now), exactly one bare Job Card is created with
+  // `ideaDetails` left blank; when given, one Job Card is created per topic
+  // instead (up to 2), each getting the same batch-level fields. Political
+  // has no "client" concept in the source (it tracks content projects, not
+  // client jobs) — `client` is set to the parent Project Order's
+  // `projectName` so every pipelineType still has one consistent "what is
+  // this row" display field — see docs/migration/DECISIONS.md.
   async createJobCardsBatch(input: CreateJobCardsBatchInput, actorUserId: number) {
     const projectOrder = await prisma.politicalProjectOrder.findUnique({
       where: { id: input.politicalProjectOrderId },
@@ -59,9 +61,11 @@ export const pipelineJobService = {
       throw Object.assign(new Error("Project Order not found"), { status: 404 });
     }
 
+    const topicsToCreate: (string | undefined)[] = input.topics.length > 0 ? input.topics : [undefined];
+
     return prisma.$transaction(async (tx) => {
       const created = [];
-      for (const topic of input.topics) {
+      for (const topic of topicsToCreate) {
         const sequence = (await tx.pipelineJob.count({ where: { pipelineType: PipelineType.POLITICAL } })) + 1;
         const jobId = `JCD-${String(sequence).padStart(5, "0")}`;
 
@@ -73,20 +77,33 @@ export const pipelineJobService = {
             projectName: projectOrder.projectName,
             politicalProjectOrderId: input.politicalProjectOrderId,
             ideaDetails: topic,
+            // Shared across the whole batch (see createJobCardsBatchSchema) —
+            // pre-fills what Job Card Planning's own form asks for per-card;
+            // still editable there individually afterward.
+            plannedDate: input.plannedDate ? new Date(input.plannedDate) : undefined,
+            type: input.contentType,
+            voiceover: input.voiceover,
+            editorName: input.editorName,
+            projectCoordinatorName: input.projectCoordinatorName,
             currentStage: "JOB_CARD_PLANNING",
           } satisfies Prisma.PipelineJobUncheckedCreateInput,
         });
 
-        // News Picking is real, attributable user work (unlike OTP/PMS's
+        // Adding a Job Card is real, attributable user work (unlike OTP/PMS's
         // feed-driven intake), but it lands the job straight at
         // JOB_CARD_PLANNING without going through advanceStage() — so
-        // without this, whoever did the News Picking gets zero MIS credit
-        // for it. "JOB_CARDS_CREATED" is a synthetic stage name (not a real
+        // without this, whoever created it gets zero MIS credit for it.
+        // "JOB_CARDS_CREATED" is a synthetic stage name (not a real
         // PoliticalStageName) used only for MIS attribution — it's never
         // queried by politicalStageService's Pending/History views (those
         // filter by real stage names), so it can't leak into the pipeline UI.
         await tx.pipelineStageEvent.create({
-          data: { pipelineJobId: job.id, stage: "JOB_CARDS_CREATED", data: { topic }, actorUserId },
+          data: {
+            pipelineJobId: job.id,
+            stage: "JOB_CARDS_CREATED",
+            data: topic ? { topic } : {},
+            actorUserId,
+          },
         });
 
         created.push(job);
