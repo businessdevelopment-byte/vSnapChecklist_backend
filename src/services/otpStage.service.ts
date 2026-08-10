@@ -33,7 +33,12 @@ export const otpStageService = {
           stageEvents: {
             where: { stage },
             orderBy: { id: "desc" },
-            take: 1,
+            // Make Token can loop on partial payments (see
+            // otpStageTransitions.MAKE_TOKEN) — its Pending rows need every
+            // prior submission to show a running "total paid so far", not
+            // just the latest. Every other stage only ever needs the latest
+            // one to pre-fill its re-opened form.
+            ...(stage === "MAKE_TOKEN" ? {} : { take: 1 }),
           },
         },
       }),

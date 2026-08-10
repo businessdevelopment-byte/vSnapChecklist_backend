@@ -87,11 +87,15 @@ const photographerBriefingSchema = z.object({
 const makeTokenSchema = z.object({
   projectId: z.string().optional(),
   jobId: z.string().optional(),
-  tokenAmount: z.string().optional(),
+  tokenAmount: z.coerce.number().nonnegative().optional(),
   paymentMode: z.enum(["UPI", "Cash", "Bank Transfer"]).default("UPI"),
   paymentPaidDate: z.string().optional(),
   receiptNumber: z.string().optional(),
-  paymentAgain: z.enum(["Yes", "No"]).default("No"),
+  // Defaults to "Yes" (stay pending) rather than "No" (advance) — OTP has no
+  // backward transition anywhere, so a forgotten field should fail toward
+  // "still needs review" (recoverable by resubmitting) rather than silently
+  // completing a partially-paid job (not recoverable). See DECISIONS.md.
+  paymentAgain: z.enum(["Yes", "No"]).default("Yes"),
   paymentScreenshotUrl: z.string().optional(),
   paymentRemarks: z.string().optional(),
 });
@@ -215,15 +219,20 @@ export const otpStageTransitions: Record<OtpStageName, (data: Record<string, unk
     data.photographerAvailable === "Yes" ? "FINAL_PHOTOGRAPHER" : "PHOTOGRAPHER_SEARCH",
   PHOTOGRAPHER_SEARCH: () => "FINAL_PHOTOGRAPHER",
   FINAL_PHOTOGRAPHER: () => "PHOTOGRAPHER_BRIEFING",
-  // These 5 stages each have their own "is this actually done" status field
-  // that staff can leave at "Pending" — in that case the job stays put
-  // (returns its own stage, a no-op for advanceStage()) instead of moving on
-  // as if the work were finished. Every other stage below has no such field
-  // and stays unconditional.
+  // These stages each have their own "is this actually done" status field
+  // that staff can leave at "Pending"/"Yes" (still needs another round) — in
+  // that case the job stays put (returns its own stage, a no-op for
+  // advanceStage()) instead of moving on as if the work were finished. Every
+  // other stage below has no such field and stays unconditional.
   PHOTOGRAPHER_BRIEFING: (data) =>
     data.allotmentConfirmationStatus === "Pending" ? "PHOTOGRAPHER_BRIEFING" : "MAKE_TOKEN",
+  // Supports partial photographer-token payments: "Yes" means more is still
+  // owed (stay here, logged as its own submission), "No" means this payment
+  // fully settles it (advance). See docs/migration/DECISIONS.md — this
+  // polarity was previously inverted (looped on "No", advanced on "Yes"),
+  // opposite of the field's own helper text and never exercised correctly.
   MAKE_TOKEN: (data) =>
-    data.paymentAgain === "No" ? "MAKE_TOKEN" : "STORY_BRIEFING",
+    data.paymentAgain === "Yes" ? "MAKE_TOKEN" : "STORY_BRIEFING",
   STORY_BRIEFING: (data) =>
     data.finalBriefStatus === "Pending" ? "STORY_BRIEFING" : "MOODBOARD_CREATION",
   MOODBOARD_CREATION: (data) =>
