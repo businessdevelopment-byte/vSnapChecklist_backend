@@ -9,15 +9,22 @@ export const pipelineJobQuerySchema = z.object({
 export type PipelineJobQueryInput = z.infer<typeof pipelineJobQuerySchema>;
 
 // Job Cards are created against an existing Project Order (see
-// PoliticalProjectOrder model) via a "News Picking" intake — one submission
-// picks 1-10 news topics, each becoming its own bare Job Card row (sitting
-// Pending at JOB_CARD_PLANNING) with its topic pre-filled onto `ideaDetails`.
-// The remaining planning fields (content type, planned date, editor) are
-// still submitted per-card afterward via the existing, unchanged
-// jobCardPlanningSchema + advanceStage() flow, not at creation time.
+// PoliticalProjectOrder model). The 5 batch-level fields below are the
+// card's real content, filled in up front; `topics` is now a legacy,
+// optional escape hatch (empty by default) — when omitted, exactly one bare
+// Job Card is created with `ideaDetails` left blank, fillable later via the
+// existing Job Card Planning form + advanceStage() flow, same as
+// plannedDate/contentType/editorName already were before this batch-fields
+// addition. When topics ARE given, one Job Card is created per topic
+// instead (up to 2), each getting the same batch-level fields.
 export const createJobCardsBatchSchema = z.object({
   politicalProjectOrderId: z.number().int().positive("Project Order is required"),
-  topics: z.array(z.string().trim().min(1)).min(1, "At least one news topic is required").max(10),
+  topics: z.array(z.string().trim().min(1)).max(2).default([]),
+  plannedDate: z.string().date().optional(),
+  contentType: z.enum(["Influencer", "Inhouse/Non-Face"]).optional(),
+  voiceover: z.enum(["Yes", "No"]).optional(),
+  editorName: z.string().trim().optional(),
+  projectCoordinatorName: z.string().trim().optional(),
 });
 
 export type CreateJobCardsBatchInput = z.infer<typeof createJobCardsBatchSchema>;

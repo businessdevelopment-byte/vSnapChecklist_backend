@@ -427,6 +427,10 @@ model PipelineJob {
   // `projectName`'s value on create) so every pipelineType has one consistent
   // "what is this row" field — see docs/migration/DECISIONS.md.
   projectName            String?
+  // Set once at News Picking (batch creation), shared across every job card
+  // created in that submission — see pipelineJobService.createJobCardsBatch.
+  // Editable again per-card afterward on Job Card Planning's own form.
+  plannedDate            DateTime?            @db.Date
   type                   String?
   voiceover              String?
   ideaDetails            String?
