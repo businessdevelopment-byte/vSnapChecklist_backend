@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
+import { ZodError } from "zod";
 import { templateService } from "../services/template.service";
-import { sendSuccess, sendPaginated, sendError } from "../utils/apiResponse";
+import { sendSuccess, sendPaginated, sendError, formatZodRowErrors } from "../utils/apiResponse";
 import {
   createTemplateSchema,
   updateTemplateSchema,
@@ -68,6 +69,10 @@ export const templateController = {
       const result = await templateService.importMany(input);
       sendSuccess(res, result, "Template import complete");
     } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, "Some rows failed validation", 400, formatZodRowErrors(err));
+        return;
+      }
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Import failed", e.status ?? 400);
     }

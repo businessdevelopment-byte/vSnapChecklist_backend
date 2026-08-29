@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
+import { ZodError } from "zod";
 import { delegationService } from "../services/delegation.service";
-import { sendSuccess, sendPaginated, sendError } from "../utils/apiResponse";
+import { sendSuccess, sendPaginated, sendError, formatZodRowErrors } from "../utils/apiResponse";
 import {
   createDelegationSchema,
   updateDelegationStatusSchema,
@@ -12,6 +13,15 @@ import {
   delegationMisQuerySchema,
   importDelegationsSchema,
 } from "../schemas/delegation.schemas";
+
+function parseTaskId(req: Request, res: Response): number | null {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    sendError(res, "Invalid task ID", 400);
+    return null;
+  }
+  return id;
+}
 
 export const delegationController = {
   async getAll(req: Request, res: Response): Promise<void> {
@@ -26,8 +36,10 @@ export const delegationController = {
   },
 
   async getById(req: Request, res: Response): Promise<void> {
+    const id = parseTaskId(req, res);
+    if (id === null) return;
     try {
-      const task = await delegationService.getById(Number(req.params.id));
+      const task = await delegationService.getById(id);
       sendSuccess(res, task, "Delegation task fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -52,15 +64,21 @@ export const delegationController = {
       const result = await delegationService.importMany(input);
       sendSuccess(res, result, "Delegation import complete");
     } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, "Some rows failed validation", 400, formatZodRowErrors(err));
+        return;
+      }
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Import failed", e.status ?? 400);
     }
   },
 
   async updateStatus(req: Request, res: Response): Promise<void> {
+    const id = parseTaskId(req, res);
+    if (id === null) return;
     try {
       const { status } = updateDelegationStatusSchema.parse(req.body);
-      const task = await delegationService.updateStatus(Number(req.params.id), status);
+      const task = await delegationService.updateStatus(id, status);
       sendSuccess(res, task, "Status updated");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -69,8 +87,10 @@ export const delegationController = {
   },
 
   async softDelete(req: Request, res: Response): Promise<void> {
+    const id = parseTaskId(req, res);
+    if (id === null) return;
     try {
-      await delegationService.softDelete(Number(req.params.id), req.user!.role);
+      await delegationService.softDelete(id, req.user!.role);
       sendSuccess(res, null, "Task deleted");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -79,13 +99,11 @@ export const delegationController = {
   },
 
   async submit(req: Request, res: Response): Promise<void> {
+    const id = parseTaskId(req, res);
+    if (id === null) return;
     try {
       const input = submitDelegationSchema.parse(req.body);
-      const history = await delegationService.submit(
-        Number(req.params.id),
-        input,
-        req.user!.userId
-      );
+      const history = await delegationService.submit(id, input, req.user!.userId);
       sendSuccess(res, history, "Task submitted", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
