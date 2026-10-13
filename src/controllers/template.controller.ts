@@ -7,6 +7,7 @@ import {
   updateTemplateSchema,
   templateQuerySchema,
   importTemplatesSchema,
+  deleteTemplatesSchema,
 } from "../schemas/template.schemas";
 
 export const templateController = {
@@ -53,13 +54,40 @@ export const templateController = {
     }
   },
 
-  async deactivate(req: Request, res: Response): Promise<void> {
+  async deletePreview(req: Request, res: Response): Promise<void> {
     try {
-      await templateService.deactivate(Number(req.params.id));
-      sendSuccess(res, null, "Template deactivated");
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const { ids } = deleteTemplatesSchema.parse(req.body);
+      const preview = await templateService.previewDelete(ids);
+      sendSuccess(res, preview, "Delete preview fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
-      sendError(res, e.message ?? "Failed to deactivate template", e.status ?? 400);
+      sendError(res, e.message ?? "Failed to fetch delete preview", e.status ?? 400);
+    }
+  },
+
+  async deleteMany(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const { ids } = deleteTemplatesSchema.parse(req.body);
+      const result = await templateService.deleteMany(ids, req.user!.userId);
+      sendSuccess(res, result, `${result.templates} task(s) deleted with ${result.openEntries} pending day(s)`);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to delete tasks", e.status ?? 400);
+    }
+  },
+
+  async deleteOne(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) { sendError(res, "Invalid task id", 400); return; }
+      const result = await templateService.deleteMany([id], req.user!.userId);
+      sendSuccess(res, result, `Task deleted with ${result.openEntries} pending day(s)`);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to delete task", e.status ?? 400);
     }
   },
 

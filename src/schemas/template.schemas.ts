@@ -69,6 +69,10 @@ export const importTemplatesSchema = z.array(
   })
 ).min(1).max(2000);
 
+export const deleteTemplatesSchema = z.object({
+  ids: z.array(z.coerce.number().int().positive()).min(1).max(2000),
+});
+
 export type CreateTemplateInput = z.infer<typeof createTemplateSchema>;
 export type UpdateTemplateInput = z.infer<typeof updateTemplateSchema>;
 export type TemplateQueryInput = z.infer<typeof templateQuerySchema>;

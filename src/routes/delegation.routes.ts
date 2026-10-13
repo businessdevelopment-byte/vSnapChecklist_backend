@@ -14,6 +14,8 @@ router.get("/mis-staff-stats",  delegationController.getMisStaffStats);
 router.post("/admin-done",      delegationController.markHistoryAdminDone);  // admin
 router.get("/submissions",      delegationController.listSubmissions);       // admin
 router.post("/import",          delegationController.importMany);
+router.post("/delete-preview",  delegationController.deletePreview);         // admin
+router.post("/bulk-delete",     delegationController.hardDeleteMany);        // admin: permanent, DONE tasks skipped
 
 // CRUD
 router.get("/", delegationController.getAll);

@@ -12,6 +12,7 @@ import {
   delegationHistoryQuerySchema,
   delegationMisQuerySchema,
   importDelegationsSchema,
+  deleteDelegationsSchema,
 } from "../schemas/delegation.schemas";
 
 function parseTaskId(req: Request, res: Response): number | null {
@@ -95,6 +96,30 @@ export const delegationController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to delete task", e.status ?? 400);
+    }
+  },
+
+  async deletePreview(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const { ids } = deleteDelegationsSchema.parse(req.body);
+      const preview = await delegationService.previewHardDelete(ids);
+      sendSuccess(res, preview, "Delete preview fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch delete preview", e.status ?? 400);
+    }
+  },
+
+  async hardDeleteMany(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const { ids } = deleteDelegationsSchema.parse(req.body);
+      const result = await delegationService.hardDeleteMany(ids, req.user!.userId);
+      sendSuccess(res, result, `${result.deleted} delegation task(s) deleted`);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to delete tasks", e.status ?? 400);
     }
   },
 
