@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { pruneDeletedCodesFromPendingRequests } from "./transfer.service";
 import type {
   CreateDelegationInput,
   SubmitDelegationInput,
@@ -193,6 +194,53 @@ export const delegationService = {
     }
     await this.getById(id);
     return prisma.delegationTask.update({ where: { id }, data: { isDeleted: true } });
+  },
+
+  async previewHardDelete(ids: number[]) {
+    const [deletable, completedSkipped] = await Promise.all([
+      prisma.delegationTask.count({ where: { id: { in: ids }, isDeleted: false, status: { not: "DONE" } } }),
+      prisma.delegationTask.count({ where: { id: { in: ids }, isDeleted: false, status: "DONE" } }),
+    ]);
+    return { deletable, completedSkipped };
+  },
+
+  /**
+   * Permanent delete (Quick Task page), unlike softDelete above which the
+   * Delegation page uses. DONE tasks are skipped: they are the completed
+   * history, and delegation stats only count isDeleted:false rows, so even a
+   * soft delete would drop them from reports. Submission history of the
+   * deleted (unfinished) tasks cascades with them.
+   */
+  async hardDeleteMany(ids: number[], adminId: number) {
+    const tasks = await prisma.delegationTask.findMany({
+      where: { id: { in: ids }, isDeleted: false },
+      select: { id: true, taskCode: true, status: true },
+    });
+    const deletable = tasks.filter((t) => t.status !== "DONE");
+    const skippedCompleted = tasks.length - deletable.length;
+    if (deletable.length === 0) {
+      throw Object.assign(
+        new Error(skippedCompleted > 0 ? "Completed tasks can't be deleted — they are kept as history" : "Task not found"),
+        { status: skippedCompleted > 0 ? 400 : 404 }
+      );
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const deleted = await tx.delegationTask.deleteMany({
+        where: { id: { in: deletable.map((t) => t.id) }, status: { not: "DONE" } },
+      });
+      const requests = await pruneDeletedCodesFromPendingRequests(
+        tx,
+        { delegationTaskCodes: deletable.map((t) => t.taskCode) },
+        adminId
+      );
+      return {
+        deleted: deleted.count,
+        skippedCompleted,
+        transferRequestsUpdated: requests.updated,
+        transferRequestsRejected: requests.rejected,
+      };
+    });
   },
 
   async submit(id: number, input: SubmitDelegationInput, submittedByUserId: number) {

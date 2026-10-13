@@ -1,6 +1,58 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { checklistService } from "./checklist.service";
 import type { TransferTasksInput } from "../schemas/transfer.schemas";
+
+/**
+ * TransferRequest stores the tasks it covers as plain taskCode strings, so a
+ * permanent task delete leaves PENDING requests pointing at tasks that no
+ * longer exist. Strips the deleted codes out of them; a request left with no
+ * codes at all is rejected, since approving it would only fail with
+ * "No pending tasks found".
+ */
+export async function pruneDeletedCodesFromPendingRequests(
+  tx: Prisma.TransactionClient,
+  deleted: { taskCodes?: string[]; delegationTaskCodes?: string[] },
+  reviewedByUserId: number
+): Promise<{ updated: number; rejected: number }> {
+  const taskCodes = new Set(deleted.taskCodes ?? []);
+  const delegationTaskCodes = new Set(deleted.delegationTaskCodes ?? []);
+  if (taskCodes.size === 0 && delegationTaskCodes.size === 0) return { updated: 0, rejected: 0 };
+
+  const requests = await tx.transferRequest.findMany({
+    where: {
+      status: "PENDING",
+      OR: [
+        ...(taskCodes.size > 0 ? [{ taskCodes: { hasSome: [...taskCodes] } }] : []),
+        ...(delegationTaskCodes.size > 0 ? [{ delegationTaskCodes: { hasSome: [...delegationTaskCodes] } }] : []),
+      ],
+    },
+    select: { id: true, taskCodes: true, delegationTaskCodes: true },
+  });
+
+  let updated = 0;
+  let rejected = 0;
+  for (const r of requests) {
+    const remainingTaskCodes = r.taskCodes.filter((c) => !taskCodes.has(c));
+    const remainingDelegationCodes = r.delegationTaskCodes.filter((c) => !delegationTaskCodes.has(c));
+    const nothingLeft = remainingTaskCodes.length === 0 && remainingDelegationCodes.length === 0;
+
+    await tx.transferRequest.update({
+      where: { id: r.id },
+      data: {
+        taskCodes: remainingTaskCodes,
+        delegationTaskCodes: remainingDelegationCodes,
+        ...(nothingLeft
+          ? { status: "REJECTED", reviewedByUserId, reviewedAt: new Date(), reviewNote: "Tasks deleted" }
+          : {}),
+      },
+    });
+    if (nothingLeft) rejected++;
+    else updated++;
+  }
+
+  return { updated, rejected };
+}
 
 /**
  * Actually reassigns tasks — called only once a TransferRequest has been

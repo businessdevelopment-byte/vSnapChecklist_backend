@@ -16,5 +16,7 @@ router.patch("/:id/role", userController.updateRole);
 router.patch("/:id/department", userController.updateDepartment);
 router.patch("/:id/employee", userController.updateEmployeeLink);
 router.patch("/:id/departments", userController.updateDepartments);
+router.get("/:id/offboard-preview", userController.offboardPreview); // admin
+router.post("/:id/offboard", userController.offboard);               // admin: hand over or delete a leaver's tasks
 
 export default router;

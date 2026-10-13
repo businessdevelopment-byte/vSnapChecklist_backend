@@ -1,6 +1,11 @@
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { pruneDeletedCodesFromPendingRequests } from "./transfer.service";
 import type { CreateTemplateInput, UpdateTemplateInput, TemplateQueryInput, ImportTemplatesInput } from "../schemas/template.schemas";
+
+// Still on someone's to-do list — the Checklist page's Pending-tab definition.
+// Everything else (completed, admin-done, leave) is history and is kept.
+const openEntry = { actualDate: null, adminDone: false, leaveStatus: false } as const;
 
 export const templateService = {
   async getAll(query: TemplateQueryInput) {
@@ -108,13 +113,69 @@ export const templateService = {
     });
   },
 
-  // Soft delete — sets isActive = false, does NOT delete entries
-  async deactivate(id: number) {
-    await this.getById(id);
-    return prisma.taskTemplate.update({
-      where: { id },
-      data: { isActive: false },
+  async previewDelete(ids: number[]) {
+    const templates = await prisma.taskTemplate.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, taskCode: true },
     });
+    const templateIds = templates.map((t) => t.id);
+    const taskCodes = templates.map((t) => t.taskCode);
+
+    const [openEntries, totalEntries, pendingRequestsAffected] = await Promise.all([
+      prisma.checklistEntry.count({ where: { templateId: { in: templateIds }, ...openEntry } }),
+      prisma.checklistEntry.count({ where: { templateId: { in: templateIds } } }),
+      taskCodes.length > 0
+        ? prisma.transferRequest.count({ where: { status: "PENDING", taskCodes: { hasSome: taskCodes } } })
+        : 0,
+    ]);
+
+    return {
+      templates: templates.length,
+      openEntries,
+      completedKept: totalEntries - openEntries,
+      pendingRequestsAffected,
+    };
+  },
+
+  /**
+   * Permanent delete. Deactivating isn't enough — a template can be switched
+   * back on, and an active one regenerates deleted rows on the next checklist
+   * load (materializeTasks backfills 30 days). So the template goes, along
+   * with every still-open row it generated. Completed/leave rows are kept as
+   * history: the FK nulls their templateId (ON DELETE SET NULL) and they carry
+   * their own copy of taskCode/description.
+   */
+  async deleteMany(ids: number[], adminId: number) {
+    const templates = await prisma.taskTemplate.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, taskCode: true },
+    });
+    if (templates.length === 0) {
+      throw Object.assign(new Error("Task not found"), { status: 404 });
+    }
+    const templateIds = templates.map((t) => t.id);
+
+    return prisma.$transaction(
+      async (tx) => {
+        const entries = await tx.checklistEntry.deleteMany({
+          where: { templateId: { in: templateIds }, ...openEntry },
+        });
+        const deleted = await tx.taskTemplate.deleteMany({ where: { id: { in: templateIds } } });
+        const requests = await pruneDeletedCodesFromPendingRequests(
+          tx,
+          { taskCodes: templates.map((t) => t.taskCode) },
+          adminId
+        );
+
+        return {
+          templates: deleted.count,
+          openEntries: entries.count,
+          transferRequestsUpdated: requests.updated,
+          transferRequestsRejected: requests.rejected,
+        };
+      },
+      { timeout: 30_000 }
+    );
   },
 
   async importMany(input: ImportTemplatesInput) {

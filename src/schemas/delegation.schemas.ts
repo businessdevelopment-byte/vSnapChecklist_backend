@@ -90,6 +90,10 @@ export const delegationMisQuerySchema = z.object({
   userId:    z.coerce.number().int().positive().optional(),
 });
 
+export const deleteDelegationsSchema = z.object({
+  ids: z.array(z.coerce.number().int().positive()).min(1).max(2000),
+});
+
 export type CreateDelegationInput = z.infer<typeof createDelegationSchema>;
 export type SubmitDelegationInput = z.infer<typeof submitDelegationSchema>;
 export type DelegationQueryInput = z.infer<typeof delegationQuerySchema>;

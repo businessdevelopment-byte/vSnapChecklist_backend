@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { userService } from "../services/user.service";
+import { offboardingService } from "../services/offboarding.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
-import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema, updateUserEmployeeLinkSchema } from "../schemas/user.schemas";
+import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema, updateUserEmployeeLinkSchema, offboardUserSchema } from "../schemas/user.schemas";
 
 export const userController = {
   async getAll(req: Request, res: Response): Promise<void> {
@@ -127,6 +128,34 @@ export const userController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Import failed", e.status ?? 400);
+    }
+  },
+
+  async offboardPreview(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const preview = await offboardingService.getPreview(Number(req.params.id));
+      sendSuccess(res, preview, "Offboard preview fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch offboard preview", e.status ?? 400);
+    }
+  },
+
+  async offboard(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const input = offboardUserSchema.parse(req.body);
+      const result = await offboardingService.offboard(Number(req.params.id), input, req.user!.userId);
+      const verb = result.mode === "REASSIGN" ? "handed over" : "deleted";
+      sendSuccess(
+        res,
+        result,
+        `Employee removed: ${result.templates} recurring, ${result.checklistTasks} checklist and ${result.delegationTasks} delegation tasks ${verb}`
+      );
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to remove employee", e.status ?? 400);
     }
   },
 };
