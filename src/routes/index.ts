@@ -40,8 +40,26 @@ import hrDashboardRoutes from "./hrDashboard.routes";
 import companyCalendarRoutes from "./companyCalendar.routes";
 import misRoutes from "./mis.routes";
 import permissionRoutes from "./permission.routes";
+import { prisma } from "../config/database";
 
 const router = Router();
+
+// Public (no auth) — confirms the API is reachable through the proxy and the DB responds.
+router.get("/check", async (_req, res) => {
+  let db = "ok";
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+  } catch {
+    db = "error";
+  }
+  res.status(db === "ok" ? 200 : 503).json({
+    success: db === "ok",
+    status: "ok",
+    db,
+    uptimeSeconds: Math.round(process.uptime()),
+    time: new Date().toISOString(),
+  });
+});
 
 router.use("/auth", authRoutes);
 router.use("/checklist", checklistRoutes);
