@@ -17,6 +17,8 @@ import { errorHandler } from "./middleware/errorHandler";
 import { sendError } from "./utils/apiResponse";
 
 const app = express();
+// Behind IIS reverse proxy on the same host: trust X-Forwarded-* only from loopback
+app.set("trust proxy", "loopback");
 
 // Systems locked here are disabled for everyone, no exceptions — mirrors
 // LOCKED_SYSTEM_KEYS in frontend/src/lib/lockedSystems.ts. Frontend hiding
