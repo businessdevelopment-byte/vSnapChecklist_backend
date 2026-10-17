@@ -15,7 +15,10 @@ param(
   [string]$LogDir      = 'C:\Tools\vsnap-deploy'
 )
 
-$ErrorActionPreference = 'Stop'
+# Native tools (git/npm) write progress to stderr; with EAP=Stop that stderr
+# becomes a terminating error and aborts the deploy. Keep Continue and gate on
+# $LASTEXITCODE explicitly; critical cmdlets use -ErrorAction Stop individually.
+$ErrorActionPreference = 'Continue'
 if (!(Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
 $log  = Join-Path $LogDir 'deploy.log'
 $lock = Join-Path $LogDir 'deploy.lock'
@@ -35,14 +38,15 @@ if (Test-Path $lock) {
 Set-Content -Path $lock -Value (Get-Date -Format o)
 
 try {
-  Set-Location $RepoPath
+  Set-Location $RepoPath -ErrorAction Stop
   Log '=== Deploy started ==='
   $before = (git rev-parse --short HEAD)
   Log "Before: $before"
 
   git fetch origin main 2>&1 | ForEach-Object { Log "git-fetch: $_" }
-  $merge = git merge --ff-only origin/main 2>&1
-  $merge | ForEach-Object { Log "git-merge: $_" }
+  if ($LASTEXITCODE -ne 0) { throw "git fetch failed ($LASTEXITCODE)" }
+  git merge --ff-only origin/main 2>&1 | ForEach-Object { Log "git-merge: $_" }
+  if ($LASTEXITCODE -ne 0) { throw "git merge --ff-only failed ($LASTEXITCODE)" }
 
   $after = (git rev-parse --short HEAD)
   Log "After:  $after"
