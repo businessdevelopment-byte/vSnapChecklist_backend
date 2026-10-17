@@ -1,55 +1,9 @@
-import { Response, CookieOptions } from "express";
+import { Response } from "express";
 import type { Request } from "express";
 import { authService } from "../services/auth.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
 import { loginSchema, registerSchema } from "../schemas/auth.schemas";
-import { env } from "../config/env";
-
-// Parses simple "15m" / "1h" / "7d" style durations (the only suffixes this
-// codebase's JWT_ACCESS_EXPIRES_IN values ever use) into milliseconds for
-// the access-token cookie's maxAge.
-function parseDurationToMs(duration: string): number {
-  const match = /^(\d+)(ms|s|m|h|d)$/.exec(duration.trim());
-  if (!match) return 15 * 60 * 1000; // fallback: 15 minutes
-  const value = Number(match[1]);
-  const unitMs: Record<string, number> = {
-    ms: 1,
-    s: 1000,
-    m: 60 * 1000,
-    h: 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-  };
-  return value * unitMs[match[2]];
-}
-
-// Locally, frontend and backend are same-origin (Next.js proxies /api/* to
-// this backend via next.config.ts's rewrites()), so cookies never cross a
-// site boundary there. In production, frontend and backend are deployed on
-// different subdomains of the same site (e.g. cl.vsnapu.com / botivateapi.vsnapu.com)
-// — COOKIE_DOMAIN (".vsnapu.com") makes the cookie valid for both, and
-// SameSite=Lax still applies because sibling subdomains are "same-site".
-const REFRESH_COOKIE_OPTS: CookieOptions = {
-  httpOnly: true,
-  secure: env.NODE_ENV === "production",
-  sameSite: "lax",
-  path: "/",
-  domain: env.COOKIE_DOMAIN,
-  maxAge: env.REFRESH_TOKEN_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
-};
-
-const ACCESS_COOKIE_OPTS: CookieOptions = {
-  httpOnly: true,
-  secure: env.NODE_ENV === "production",
-  sameSite: "lax",
-  path: "/",
-  domain: env.COOKIE_DOMAIN,
-  maxAge: parseDurationToMs(env.JWT_ACCESS_EXPIRES_IN),
-};
-
-// clearCookie must be called with the same domain/path the cookie was set
-// with, or the browser won't recognize it as the same cookie to remove.
-const CLEAR_REFRESH_COOKIE_OPTS: CookieOptions = { path: "/", domain: env.COOKIE_DOMAIN };
-const CLEAR_ACCESS_COOKIE_OPTS: CookieOptions = { path: "/", domain: env.COOKIE_DOMAIN };
+import { REFRESH_COOKIE_OPTS, ACCESS_COOKIE_OPTS, clearAuthCookies } from "../utils/authCookies";
 
 export const authController = {
   async login(req: Request, res: Response): Promise<void> {
@@ -106,6 +60,9 @@ export const authController = {
       sendSuccess(res, result, "Token refreshed successfully");
     } catch (err: unknown) {
       const error = err as { status?: number; message?: string };
+      // The session is dead (revoked, expired, user deleted or inactive) —
+      // drop the cookies so the browser lands on /login instead of looping.
+      clearAuthCookies(res);
       sendError(res, error.message ?? "Token refresh failed", error.status ?? 401);
     }
   },
@@ -114,8 +71,7 @@ export const authController = {
     try {
       const refreshToken = req.cookies?.refreshToken;
       await authService.logout(refreshToken);
-      res.clearCookie("refreshToken", CLEAR_REFRESH_COOKIE_OPTS);
-      res.clearCookie("accessToken", CLEAR_ACCESS_COOKIE_OPTS);
+      clearAuthCookies(res);
       sendSuccess(res, null, "Logged out successfully");
     } catch (err: unknown) {
       const error = err as { status?: number; message?: string };

@@ -43,18 +43,10 @@ export const updateUserEmployeeLinkSchema = z.object({
   employeeId: z.number().int().positive().nullable(),
 });
 
-export const offboardUserSchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("REASSIGN"),
-    toUserId: z.coerce.number().int().positive(),
-  }),
-  z.object({
-    mode: z.literal("DELETE"),
-    confirmUsername: z.string().min(1),
-  }),
-]);
+export const deleteAllUsersSchema = z.object({
+  password: z.string().min(1, "Enter your password"),
+});
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
-export type OffboardUserInput = z.infer<typeof offboardUserSchema>;
 export type ImportUsersInput = z.infer<typeof importUsersSchema>;
 export type UpdateUserDeptsInput = z.infer<typeof updateUserDeptsSchema>;

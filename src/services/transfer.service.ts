@@ -244,6 +244,11 @@ export const transferService = {
     if (request.status !== "PENDING") {
       throw Object.assign(new Error("This request has already been reviewed"), { status: 400 });
     }
+    // Deleting a user rejects their PENDING requests, so this only guards
+    // against a race with that.
+    if (request.toUserId === null) {
+      throw Object.assign(new Error("The employee on this request has been deleted"), { status: 409 });
+    }
 
     // Let executeTransfer's own errors (e.g. nothing left to transfer because
     // the requester already handled it another way) surface as the approval's

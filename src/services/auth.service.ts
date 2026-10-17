@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { signAccessToken } from "../utils/jwt";
 import { generateRefreshToken, hashRefreshToken } from "../utils/refreshToken";
+import { findUserByUsername } from "../utils/username";
 import { env } from "../config/env";
 import type { LoginInput, RegisterInput } from "../schemas/auth.schemas";
 import crypto from "crypto";
@@ -23,10 +24,14 @@ type RefreshTokenWithUser = Prisma.RefreshTokenGetPayload<typeof refreshTokenWit
 
 export const authService = {
   async login(input: LoginInput, ipAddress?: string, userAgent?: string) {
-    const user = await prisma.user.findUnique({
-      where: { username: input.username },
-      include: { department: { select: { id: true, name: true } } },
-    });
+    // Forgiving on case and spacing — "devraj  sahu " finds "Devraj Sahu".
+    const match = await findUserByUsername(input.username, { id: true });
+    const user = match
+      ? await prisma.user.findUnique({
+          where: { id: match.id },
+          include: { department: { select: { id: true, name: true } } },
+        })
+      : null;
 
     if (!user || user.status === "INACTIVE") {
       throw Object.assign(new Error("Invalid credentials"), { status: 401 });

@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { userService } from "../services/user.service";
 import { offboardingService } from "../services/offboarding.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
-import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema, updateUserEmployeeLinkSchema, offboardUserSchema } from "../schemas/user.schemas";
+import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema, updateUserEmployeeLinkSchema, deleteAllUsersSchema } from "../schemas/user.schemas";
 
 export const userController = {
   async getAll(req: Request, res: Response): Promise<void> {
@@ -123,39 +123,49 @@ export const userController = {
         return;
       }
       const input = importUsersSchema.parse(req.body);
-      const result = await userService.importMany(input);
-      sendSuccess(res, result, `Import done: ${result.created} created, ${result.skipped} skipped`);
+      const result = await userService.importMany(input, req.user!.userId);
+      sendSuccess(res, result, `Import done: ${result.created} created, ${result.updated} updated, ${result.skipped} skipped`);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Import failed", e.status ?? 400);
     }
   },
 
-  async offboardPreview(req: Request, res: Response): Promise<void> {
+  async deletePreview(req: Request, res: Response): Promise<void> {
     try {
       if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
-      const preview = await offboardingService.getPreview(Number(req.params.id));
-      sendSuccess(res, preview, "Offboard preview fetched");
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) { sendError(res, "Invalid user id", 400); return; }
+      const preview = await offboardingService.getDeletePreview(id);
+      sendSuccess(res, preview, "Delete preview fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
-      sendError(res, e.message ?? "Failed to fetch offboard preview", e.status ?? 400);
+      sendError(res, e.message ?? "Failed to fetch delete preview", e.status ?? 400);
     }
   },
 
-  async offboard(req: Request, res: Response): Promise<void> {
+  async deleteAllNonAdmins(req: Request, res: Response): Promise<void> {
     try {
       if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
-      const input = offboardUserSchema.parse(req.body);
-      const result = await offboardingService.offboard(Number(req.params.id), input, req.user!.userId);
-      const verb = result.mode === "REASSIGN" ? "handed over" : "deleted";
-      sendSuccess(
-        res,
-        result,
-        `Employee removed: ${result.templates} recurring, ${result.checklistTasks} checklist and ${result.delegationTasks} delegation tasks ${verb}`
-      );
+      const { password } = deleteAllUsersSchema.parse(req.body);
+      const result = await offboardingService.deleteAllNonAdmins(req.user!.userId, password);
+      sendSuccess(res, result, `${result.deleted} users deleted permanently`);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
-      sendError(res, e.message ?? "Failed to remove employee", e.status ?? 400);
+      sendError(res, e.message ?? "Failed to delete users", e.status ?? 400);
+    }
+  },
+
+  async deleteUser(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) { sendError(res, "Invalid user id", 400); return; }
+      const result = await offboardingService.deleteUser(id, req.user!.userId);
+      sendSuccess(res, result, "User deleted permanently");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to delete user", e.status ?? 400);
     }
   },
 };

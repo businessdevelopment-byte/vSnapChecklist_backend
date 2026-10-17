@@ -45,6 +45,8 @@ export const importDelegationsSchema = z.array(
     assignedUsername: z.string().min(1),
     description: z.string().min(1),
     taskStartDate: z.string().refine((v) => !isNaN(Date.parse(v)), "Invalid start date"),
+    // Only for status PLANNED (sheet "Extend date"): the extended deadline.
+    taskEndDate: z.string().refine((v) => !isNaN(Date.parse(v)), "Invalid planned date").optional(),
     frequency: z.enum(["ONE_TIME", "CRITICAL", "URGENT"]),
     enableReminders: z.boolean().optional(),
     requireAttachment: z.boolean().optional(),
