@@ -18,6 +18,7 @@ Add new routes/pages in `../frontend/` consistently with the existing App Router
 - `page.tsx` = thin wrapper only: `import MainX from "@/features/.../components/MainX"; export default function XPage() { return <MainX />; }` — zero exceptions exist today, keep it that way.
 - Route segments are kebab-case (`assign-task`, not `AssignTask` or `Assign Task` — normalize any spaced folder names coming from `Master`).
 - **No `middleware.ts` exists.** Don't write code that assumes server-side route protection is in place — today, an unauthenticated user can render any dashboard page client-side until an API call 401s and bounces them. If a migrated module needs real protection, raise it explicitly rather than assuming it's already handled.
+  - History: a root-level `frontend/middleware.ts` existed 2026-07-16 → 2026-10-17 and docs claimed it gated routes, but it **never ran** — with `src/app`, Next only loads `src/middleware.ts` — and it was deleted. Reintroducing one also needs prod cookie visibility solved first: prod cookies are `Domain=.botivateapi.vsnapu.com` (cross-origin API), invisible to `cl.vsnapu.com`, so a cookie check there would bounce every user to `/login`.
 
 ## Best Practices
 

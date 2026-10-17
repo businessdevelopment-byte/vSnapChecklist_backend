@@ -20,10 +20,13 @@ function parseDurationToMs(duration: string): number {
 
 // Locally, frontend and backend are same-origin (Next.js proxies /api/* to
 // this backend via next.config.ts's rewrites()), so cookies never cross a
-// site boundary there. In production, frontend and backend are deployed on
-// different subdomains of the same site (e.g. cl.vsnapu.com / botivateapi.vsnapu.com)
-// — COOKIE_DOMAIN (".vsnapu.com") makes the cookie valid for both, and
-// SameSite=Lax still applies because sibling subdomains are "same-site".
+// site boundary there. In production the frontend (cl.vsnapu.com, Vercel)
+// calls this API (botivateapi.vsnapu.com) cross-origin, and prod's
+// COOKIE_DOMAIN is ".botivateapi.vsnapu.com" — the cookies live on the API
+// host only, which is all that's needed: only this backend reads them (the
+// frontend has no server-side middleware). SameSite=Lax still lets them ride
+// along because sibling subdomains are "same-site". Widening COOKIE_DOMAIN to
+// ".vsnapu.com" would also send the tokens to every other *.vsnapu.com site.
 export const REFRESH_COOKIE_OPTS: CookieOptions = {
   httpOnly: true,
   secure: env.NODE_ENV === "production",
@@ -47,9 +50,8 @@ export const ACCESS_COOKIE_OPTS: CookieOptions = {
 const CLEAR_COOKIE_OPTS: CookieOptions = { path: "/", domain: env.COOKIE_DOMAIN };
 
 // Also used whenever a session turns out to be dead (failed refresh, deleted
-// or deactivated user) — frontend middleware.ts treats a lingering
-// refreshToken cookie as "logged in" and would bounce /login back to the
-// dashboard forever.
+// or deactivated user) — no point leaving a token the browser will keep
+// sending on every request only to be rejected.
 export function clearAuthCookies(res: Response): void {
   res.clearCookie("refreshToken", CLEAR_COOKIE_OPTS);
   res.clearCookie("accessToken", CLEAR_COOKIE_OPTS);
