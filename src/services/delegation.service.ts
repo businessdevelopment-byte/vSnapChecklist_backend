@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { pruneDeletedCodesFromPendingRequests } from "./transfer.service";
+import { normalizeUsername } from "../utils/username";
 import type {
   CreateDelegationInput,
   SubmitDelegationInput,
@@ -112,68 +113,180 @@ export const delegationService = {
     });
   },
 
+  /**
+   * Imports (or re-imports) delegation tasks from the Settings CSV import.
+   * The sheet's Status + Admin Done decide where each task lands, mirroring
+   * what the same work would look like if it had been done in the app:
+   *   Done + Admin Done   → DONE, submission pre-approved
+   *   Done, no Admin Done → VERIFY_PENDING, submission waits in Admin Approve
+   *   Extend date         → PLANNED, taskEndDate = Planned Date (like submit())
+   *   blank               → PENDING
+   * A task code that already exists is refreshed from the sheet — unless
+   * someone has worked on it in the app, in which case only its details
+   * change and its progress (status, dates, assignee, history) is kept.
+   * Missing departments are created; nothing is skipped silently.
+   */
   async importMany(input: ImportDelegationsInput) {
-    const results = { created: 0, skipped: 0, errors: [] as string[] };
+    const results = {
+      created: 0,
+      updated: 0,
+      keptAppProgress: 0,
+      awaitingApproval: 0,
+      departmentsCreated: [] as string[],
+      errors: [] as string[],
+    };
+    const now = new Date();
+    // submissionDate is date-only; an extension's real date isn't in the sheet.
+    const importDay = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
+    const deptIdByName = new Map(
+      (await prisma.department.findMany({ select: { id: true, name: true } }))
+        .map((d) => [d.name.trim().toLowerCase(), d.id])
+    );
+    // Exact name first; a case-insensitive match only when it's unambiguous.
+    const users = await prisma.user.findMany({ select: { id: true, username: true } });
+    const userIdByExact = new Map(users.map((u) => [normalizeUsername(u.username), u.id]));
+    const userIdsByLower = new Map<string, number[]>();
+    for (const u of users) {
+      const key = normalizeUsername(u.username).toLowerCase();
+      userIdsByLower.set(key, [...(userIdsByLower.get(key) ?? []), u.id]);
+    }
+    const userIdFor = (raw: string) => {
+      const name = normalizeUsername(raw);
+      const lower = userIdsByLower.get(name.toLowerCase());
+      return userIdByExact.get(name) ?? (lower?.length === 1 ? lower[0] : undefined);
+    };
 
     for (const t of input) {
       try {
-        const dept = await prisma.department.findFirst({
-          where: { name: { equals: t.departmentName, mode: "insensitive" } },
-        });
-        if (!dept) {
-          results.errors.push(`${t.taskCode}: department "${t.departmentName}" not found`);
-          continue;
+        const deptKey = t.departmentName.trim().toLowerCase();
+        let departmentId = deptIdByName.get(deptKey);
+        if (!departmentId) {
+          const dept = await prisma.department.create({ data: { name: t.departmentName.trim() } });
+          departmentId = dept.id;
+          deptIdByName.set(deptKey, dept.id);
+          results.departmentsCreated.push(dept.name);
         }
 
-        const user = await prisma.user.findUnique({ where: { username: t.assignedUsername } });
-        if (!user) {
+        const userId = userIdFor(t.assignedUsername);
+        if (!userId) {
           results.errors.push(`${t.taskCode}: user "${t.assignedUsername}" not found`);
           continue;
         }
 
-        const exists = await prisma.delegationTask.findUnique({ where: { taskCode: t.taskCode } });
-        if (exists) { results.skipped++; continue; }
+        const isDone = t.status === "DONE" || t.status === "VERIFY_PENDING";
+        if (isDone && !t.submissionDate) {
+          results.errors.push(`${t.taskCode}: Done status needs an Actual date`);
+          continue;
+        }
+        const adminDone = /^(done|yes|true|1)$/i.test(t.adminDoneStatus?.trim() ?? "");
+        const extended = t.status === "PLANNED";
 
-        const task = await prisma.delegationTask.create({
-          data: {
-            taskCode: t.taskCode,
-            departmentId: dept.id,
+        const taskStartDate = new Date(t.taskStartDate);
+        const taskEndDate = extended && t.taskEndDate ? new Date(t.taskEndDate) : null;
+        const status = isDone ? (adminDone ? "DONE" : "VERIFY_PENDING") : extended ? "PLANNED" : "PENDING";
+
+        const history = (delegationTaskId: number): Prisma.DelegationHistoryUncheckedCreateInput | null => {
+          const base = {
+            delegationTaskId,
+            submittedByUserId: userId,
+            taskDescription: t.description,
             givenBy: t.givenBy,
-            assignedUserId: user.id,
-            description: t.description,
-            taskStartDate: new Date(t.taskStartDate),
-            frequency: t.frequency,
-            enableReminders: t.enableReminders ?? true,
-            requireAttachment: t.requireAttachment ?? false,
-            status: t.status ?? "PENDING",
-            isDeleted: t.isDeleted ?? false,
-          },
+            remarks: t.remarks,
+            importedAt: now,
+          };
+          if (isDone) {
+            const submissionDate = new Date(t.submissionDate!);
+            return {
+              ...base,
+              status: "DONE",
+              submissionDate,
+              imageUrl: t.imageUrl,
+              isLate: submissionDate > (taskEndDate ?? taskStartDate),
+              adminDoneStatus: adminDone ? "Done" : null,
+              // Pre-approved only when the sheet says an admin already checked
+              // it; otherwise it's a real pending review (no reviewer is set
+              // either way — that's what marks the approval as import-made).
+              reviewStatus: adminDone ? "APPROVED" : "PENDING",
+              reviewedAt: adminDone ? now : null,
+            };
+          }
+          if (extended && taskEndDate) {
+            return { ...base, status: "EXTEND_DATE", submissionDate: importDay, nextTargetDate: taskEndDate };
+          }
+          return null;
+        };
+
+        const details = {
+          departmentId,
+          givenBy: t.givenBy,
+          description: t.description,
+          frequency: t.frequency,
+          ...(t.enableReminders !== undefined && { enableReminders: t.enableReminders }),
+          ...(t.requireAttachment !== undefined && { requireAttachment: t.requireAttachment }),
+        };
+
+        const existing = await prisma.delegationTask.findUnique({
+          where: { taskCode: t.taskCode },
+          select: { id: true, isDeleted: true },
         });
 
-        // A row carrying a completed historical submission (Status=Done + an Actual
-        // date) gets its DelegationHistory recreated too, pre-approved — it's already
-        // finished work being backfilled, not a new completion awaiting admin review.
-        if (t.status === "DONE" && t.submissionDate) {
-          const isLate = new Date(t.submissionDate) > task.taskStartDate;
-          await prisma.delegationHistory.create({
-            data: {
-              delegationTaskId: task.id,
-              submittedByUserId: user.id,
-              submissionDate: new Date(t.submissionDate),
-              status: "DONE",
-              remarks: t.remarks,
-              imageUrl: t.imageUrl,
-              taskDescription: t.description,
-              givenBy: t.givenBy,
-              adminDoneStatus: t.adminDoneStatus,
-              isLate,
-              reviewStatus: "APPROVED",
-              reviewedAt: new Date(),
-            },
+        if (!existing) {
+          await prisma.$transaction(async (tx) => {
+            const task = await tx.delegationTask.create({
+              data: {
+                ...details,
+                taskCode: t.taskCode,
+                assignedUserId: userId,
+                taskStartDate,
+                taskEndDate,
+                status,
+                isDeleted: t.isDeleted ?? false,
+              },
+            });
+            const row = history(task.id);
+            if (row) await tx.delegationHistory.create({ data: row });
           });
+          results.created++;
+          if (status === "VERIFY_PENDING") results.awaitingApproval++;
+          continue;
         }
 
-        results.created++;
+        // In-app work leaves rows the importer never makes: a submission or
+        // extension (importedAt null), an admin review (reviewer set), or a
+        // transfer. The sheet must not undo any of that.
+        const [appHistory, transfers] = await Promise.all([
+          prisma.delegationHistory.count({
+            where: {
+              delegationTaskId: existing.id,
+              OR: [{ importedAt: null }, { reviewedByUserId: { not: null } }],
+            },
+          }),
+          prisma.taskTransferLog.count({ where: { delegationTaskId: existing.id } }),
+        ]);
+
+        // Deleting is one-way: the sheet can delete a task, never restore one.
+        const isDeleted = existing.isDeleted || (t.isDeleted ?? false);
+
+        if (appHistory > 0 || transfers > 0) {
+          await prisma.delegationTask.update({ where: { id: existing.id }, data: { ...details, isDeleted } });
+          results.keptAppProgress++;
+          continue;
+        }
+
+        await prisma.$transaction(async (tx) => {
+          await tx.delegationHistory.deleteMany({
+            where: { delegationTaskId: existing.id, importedAt: { not: null } },
+          });
+          await tx.delegationTask.update({
+            where: { id: existing.id },
+            data: { ...details, assignedUserId: userId, taskStartDate, taskEndDate, status, isDeleted },
+          });
+          const row = history(existing.id);
+          if (row) await tx.delegationHistory.create({ data: row });
+        });
+        results.updated++;
+        if (status === "VERIFY_PENDING") results.awaitingApproval++;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         results.errors.push(`${t.taskCode}: ${msg}`);
@@ -343,23 +456,35 @@ export const delegationService = {
 
   // "Done" submissions awaiting or already given a verdict — reviewStatus is
   // null for EXTEND_DATE rows, which never enter this list at all.
+  // Every PENDING submission plus the latest reviewed ones. One capped list
+  // used to hide pending items behind hundreds of reviewed rows — e.g. after
+  // a sheet import pre-approves most of them — so the admin couldn't act.
   async listSubmissionsForReview() {
-    return prisma.delegationHistory.findMany({
-      where: { reviewStatus: { not: null } },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-      include: {
-        submittedBy: { select: { id: true, username: true } },
-        reviewedBy: { select: { id: true, username: true } },
-        delegationTask: {
-          select: {
-            taskCode: true,
-            description: true,
-            assignedUser: { select: { id: true, username: true } },
-          },
+    const include = {
+      submittedBy: { select: { id: true, username: true } },
+      reviewedBy: { select: { id: true, username: true } },
+      delegationTask: {
+        select: {
+          taskCode: true,
+          description: true,
+          assignedUser: { select: { id: true, username: true } },
         },
       },
-    });
+    } as const;
+    const [pending, reviewed] = await Promise.all([
+      prisma.delegationHistory.findMany({
+        where: { reviewStatus: "PENDING" },
+        orderBy: { createdAt: "desc" },
+        include,
+      }),
+      prisma.delegationHistory.findMany({
+        where: { reviewStatus: { in: ["APPROVED", "REJECTED"] } },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include,
+      }),
+    ]);
+    return [...pending, ...reviewed];
   },
 
   async approveSubmission(historyId: number, reviewedByUserId: number) {

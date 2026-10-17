@@ -16,7 +16,8 @@ router.patch("/:id/role", userController.updateRole);
 router.patch("/:id/department", userController.updateDepartment);
 router.patch("/:id/employee", userController.updateEmployeeLink);
 router.patch("/:id/departments", userController.updateDepartments);
-router.get("/:id/offboard-preview", userController.offboardPreview); // admin
-router.post("/:id/offboard", userController.offboard);               // admin: hand over or delete a leaver's tasks
+router.post("/delete-all", userController.deleteAllNonAdmins); // admin + password: deletes every USER-role account, keeps admins
+router.get("/:id/delete-preview", userController.deletePreview); // admin: counts shown in the delete warning
+router.delete("/:id", userController.deleteUser); // admin: permanently deletes the user + all their tasks/history
 
 export default router;

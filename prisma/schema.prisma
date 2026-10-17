@@ -16,45 +16,45 @@ datasource db {
 // admin action (PATCH /api/users/:id/employee, mirroring the existing
 // updateDepartment endpoint's shape) — see docs/migration/DECISIONS.md.
 model User {
-  id                       Int                  @id @default(autoincrement())
-  username                 String               @unique
-  passwordHash             String
-  email                    String?              @unique
-  role                     Role                 @default(USER)
-  status                   UserStatus           @default(ACTIVE)
-  departmentId             Int?
-  employeeId               Int?                 @unique
-  createdAt                DateTime             @default(now())
-  updatedAt                DateTime             @updatedAt
-  attendanceLogs           AttendanceLog[]
-  checklistEntries         ChecklistEntry[]     @relation("EntryAssignedTo")
-  transferredTo            ChecklistEntry[]     @relation("EntryTransferredTo")
-  delegationHistory        DelegationHistory[]  @relation("HistorySubmittedBy")
-  delegationHistoryReviewed DelegationHistory[] @relation("DelegationHistoryReviewedBy")
-  delegationTasks          DelegationTask[]     @relation("DelegationAssignedTo")
-  templateTasks            TaskTemplate[]       @relation("TemplateAssignedTo")
-  transfersFrom            TaskTransferLog[]    @relation("TransferFrom")
-  transfersTo              TaskTransferLog[]    @relation("TransferTo")
-  transferredBy            TaskTransferLog[]    @relation("TransferBy")
-  leaveLogs                LeaveLog[]           @relation("LeaveLogFor")
-  leaveLogsMarked          LeaveLog[]           @relation("LeaveLogMarkedBy")
-  transferRequestsFrom     TransferRequest[]    @relation("TransferRequestFrom")
-  transferRequestsTo       TransferRequest[]    @relation("TransferRequestTo")
-  transferRequestsMade     TransferRequest[]    @relation("TransferRequestBy")
-  transferRequestsReviewed TransferRequest[]    @relation("TransferRequestReviewedBy")
-  departments              UserDepartment[]
-  department               Department?          @relation(fields: [departmentId], references: [id])
-  employee                 Employee?            @relation(fields: [employeeId], references: [id])
-  sectionPermissions       SectionPermission[]
-  refreshTokens            RefreshToken[]
-  misTargets               MisWeeklyTarget[]    @relation("MisTargetForUser")
-  misTargetsSet            MisWeeklyTarget[]    @relation("MisTargetSetBy")
-  otpStageEventsActed      OtpStageEvent[]      @relation("OtpStageEventActor")
-  pipelineStageEventsActed PipelineStageEvent[] @relation("PipelineStageEventActor")
-  indentsCreated           Indent[]             @relation("IndentCreatedBy")
-  enquiriesCreated         Enquiry[]            @relation("EnquiryCreatedBy")
-  followUpsCreated         FollowUp[]           @relation("FollowUpCreatedBy")
-  jobApplicationsCreated   JobApplication[]     @relation("JobApplicationCreatedBy")
+  id                            Int                     @id @default(autoincrement())
+  username                      String                  @unique
+  passwordHash                  String
+  email                         String?                 @unique
+  role                          Role                    @default(USER)
+  status                        UserStatus              @default(ACTIVE)
+  departmentId                  Int?
+  employeeId                    Int?                    @unique
+  createdAt                     DateTime                @default(now())
+  updatedAt                     DateTime                @updatedAt
+  attendanceLogs                AttendanceLog[]
+  checklistEntries              ChecklistEntry[]        @relation("EntryAssignedTo")
+  transferredTo                 ChecklistEntry[]        @relation("EntryTransferredTo")
+  delegationHistory             DelegationHistory[]     @relation("HistorySubmittedBy")
+  delegationHistoryReviewed     DelegationHistory[]     @relation("DelegationHistoryReviewedBy")
+  delegationTasks               DelegationTask[]        @relation("DelegationAssignedTo")
+  templateTasks                 TaskTemplate[]          @relation("TemplateAssignedTo")
+  transfersFrom                 TaskTransferLog[]       @relation("TransferFrom")
+  transfersTo                   TaskTransferLog[]       @relation("TransferTo")
+  transferredBy                 TaskTransferLog[]       @relation("TransferBy")
+  leaveLogs                     LeaveLog[]              @relation("LeaveLogFor")
+  leaveLogsMarked               LeaveLog[]              @relation("LeaveLogMarkedBy")
+  transferRequestsFrom          TransferRequest[]       @relation("TransferRequestFrom")
+  transferRequestsTo            TransferRequest[]       @relation("TransferRequestTo")
+  transferRequestsMade          TransferRequest[]       @relation("TransferRequestBy")
+  transferRequestsReviewed      TransferRequest[]       @relation("TransferRequestReviewedBy")
+  departments                   UserDepartment[]
+  department                    Department?             @relation(fields: [departmentId], references: [id])
+  employee                      Employee?               @relation(fields: [employeeId], references: [id])
+  sectionPermissions            SectionPermission[]
+  refreshTokens                 RefreshToken[]
+  misTargets                    MisWeeklyTarget[]       @relation("MisTargetForUser")
+  misTargetsSet                 MisWeeklyTarget[]       @relation("MisTargetSetBy")
+  otpStageEventsActed           OtpStageEvent[]         @relation("OtpStageEventActor")
+  pipelineStageEventsActed      PipelineStageEvent[]    @relation("PipelineStageEventActor")
+  indentsCreated                Indent[]                @relation("IndentCreatedBy")
+  enquiriesCreated              Enquiry[]               @relation("EnquiryCreatedBy")
+  followUpsCreated              FollowUp[]              @relation("FollowUpCreatedBy")
+  jobApplicationsCreated        JobApplication[]        @relation("JobApplicationCreatedBy")
   politicalProjectOrdersCreated PoliticalProjectOrder[] @relation("PoliticalProjectOrderCreatedBy")
 
   @@index([username])
@@ -146,41 +146,41 @@ model TaskTemplate {
 }
 
 model ChecklistEntry {
-  id                BigInt            @id @default(autoincrement())
-  templateId        Int?
-  taskCode          String
-  departmentId      Int
-  givenBy           String
-  assignedUserId    Int
-  description       String
-  taskStartDate     DateTime          @db.Date
-  taskStartTime     String?
-  frequency         Frequency
-  enableReminders   Boolean           @default(true)
-  requireAttachment Boolean           @default(false)
-  sampleImageUrl    String?
-  actualDate        DateTime?         @db.Date
-  delayDays         Int?
-  completionStatus  CompletionStatus?
-  remarks           String?
-  uploadedImageUrl  String?
-  adminDone         Boolean           @default(false)
-  leaveStatus       Boolean           @default(false)
-  transferredToId   Int?
+  id                 BigInt            @id @default(autoincrement())
+  templateId         Int?
+  taskCode           String
+  departmentId       Int
+  givenBy            String
+  assignedUserId     Int
+  description        String
+  taskStartDate      DateTime          @db.Date
+  taskStartTime      String?
+  frequency          Frequency
+  enableReminders    Boolean           @default(true)
+  requireAttachment  Boolean           @default(false)
+  sampleImageUrl     String?
+  actualDate         DateTime?         @db.Date
+  delayDays          Int?
+  completionStatus   CompletionStatus?
+  remarks            String?
+  uploadedImageUrl   String?
+  adminDone          Boolean           @default(false)
+  leaveStatus        Boolean           @default(false)
+  transferredToId    Int?
   // Live "on loan" overlay for a temporary transfer — assignedUserId is never
   // changed by a transfer; while this is set and in the future, the entry is
   // hidden from Checklist and shown (tagged) on transferredTo's Delegation
   // page instead. Cleared automatically once expired (see
   // checklistService.reconcileExpiredTransfers) — no cron, just lazy-on-read.
-  transferValidUntil DateTime?        @db.Date
-  remarks1          String?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  assignedUser      User              @relation("EntryAssignedTo", fields: [assignedUserId], references: [id])
-  department        Department        @relation(fields: [departmentId], references: [id])
-  template          TaskTemplate?     @relation(fields: [templateId], references: [id])
-  transferredTo     User?             @relation("EntryTransferredTo", fields: [transferredToId], references: [id])
-  transferLogs      TaskTransferLog[]
+  transferValidUntil DateTime?         @db.Date
+  remarks1           String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  assignedUser       User              @relation("EntryAssignedTo", fields: [assignedUserId], references: [id])
+  department         Department        @relation(fields: [departmentId], references: [id])
+  template           TaskTemplate?     @relation(fields: [templateId], references: [id])
+  transferredTo      User?             @relation("EntryTransferredTo", fields: [transferredToId], references: [id])
+  transferLogs       TaskTransferLog[]
 
   @@unique([templateId, taskStartDate])
   @@index([assignedUserId, taskStartDate])
@@ -224,7 +224,9 @@ model DelegationTask {
 model DelegationHistory {
   id                Int                     @id @default(autoincrement())
   delegationTaskId  Int
-  submittedByUserId Int
+  // Nullable so a submission on a task now owned by someone else survives
+  // its submitter being deleted (offboarding.service.ts) as "Deleted user".
+  submittedByUserId Int?
   submissionDate    DateTime                @db.Date
   status            HistoryStatus
   nextTargetDate    DateTime?               @db.Date
@@ -242,8 +244,12 @@ model DelegationHistory {
   reviewedByUserId  Int?
   reviewedAt        DateTime?
   reviewNote        String?
+  // Set on rows created by the CSV import (delegationService.importMany). A
+  // re-import may replace these freely; rows without it are real in-app work
+  // (submissions/extensions) and are never touched by an import.
+  importedAt        DateTime?
   delegationTask    DelegationTask          @relation(fields: [delegationTaskId], references: [id], onDelete: Cascade)
-  submittedBy       User                    @relation("HistorySubmittedBy", fields: [submittedByUserId], references: [id])
+  submittedBy       User?                   @relation("HistorySubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
   reviewedBy        User?                   @relation("DelegationHistoryReviewedBy", fields: [reviewedByUserId], references: [id])
 
   @@index([delegationTaskId])
@@ -257,9 +263,11 @@ model TaskTransferLog {
   checklistEntryId    BigInt?
   templateId          Int?
   delegationTaskId    Int?
-  fromUserId          Int
-  toUserId            Int
-  transferredByUserId Int
+  // All three nullable: deleting a user (offboarding.service.ts) keeps other
+  // people's transfer history and shows the deleted side as "Deleted user".
+  fromUserId          Int?
+  toUserId            Int?
+  transferredByUserId Int?
   reason              String?
   transferredAt       DateTime        @default(now())
   // The task-date-range this transfer covered ("kab tak" — until when) —
@@ -269,9 +277,9 @@ model TaskTransferLog {
   validUntil          DateTime?       @db.Date
   checklistEntry      ChecklistEntry? @relation(fields: [checklistEntryId], references: [id])
   delegationTask      DelegationTask? @relation(fields: [delegationTaskId], references: [id])
-  fromUser            User            @relation("TransferFrom", fields: [fromUserId], references: [id])
-  toUser              User            @relation("TransferTo", fields: [toUserId], references: [id])
-  transferredBy       User            @relation("TransferBy", fields: [transferredByUserId], references: [id])
+  fromUser            User?           @relation("TransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser              User?           @relation("TransferTo", fields: [toUserId], references: [id], onDelete: SetNull)
+  transferredBy       User?           @relation("TransferBy", fields: [transferredByUserId], references: [id], onDelete: SetNull)
 
   @@index([checklistEntryId])
   @@index([delegationTaskId])
@@ -285,13 +293,15 @@ model TaskTransferLog {
 model LeaveLog {
   id             Int      @id @default(autoincrement())
   userId         Int
-  markedByUserId Int
+  // Nullable so an employee's leave history survives the admin who marked
+  // it being deleted.
+  markedByUserId Int?
   startDate      DateTime @db.Date
   endDate        DateTime @db.Date
   reason         String?
   markedAt       DateTime @default(now())
   user           User     @relation("LeaveLogFor", fields: [userId], references: [id])
-  markedBy       User     @relation("LeaveLogMarkedBy", fields: [markedByUserId], references: [id])
+  markedBy       User?    @relation("LeaveLogMarkedBy", fields: [markedByUserId], references: [id], onDelete: SetNull)
 
   @@index([userId, markedAt])
   @@map("leave_logs")
@@ -309,9 +319,12 @@ enum TransferRequestStatus {
 // captured here, not a re-derived "everything in range" at approval time.
 model TransferRequest {
   id                  Int                   @id @default(autoincrement())
+  // fromUserId stays required — deleting a user deletes the requests about
+  // their own tasks. toUserId/requestedByUserId are nulled instead, so other
+  // people's requests survive with the deleted side shown as "Deleted user".
   fromUserId          Int
-  toUserId            Int
-  requestedByUserId   Int
+  toUserId            Int?
+  requestedByUserId   Int?
   startDate           DateTime
   endDate             DateTime
   reason              String?
@@ -324,8 +337,8 @@ model TransferRequest {
   reviewNote          String?
   createdAt           DateTime              @default(now())
   fromUser            User                  @relation("TransferRequestFrom", fields: [fromUserId], references: [id])
-  toUser              User                  @relation("TransferRequestTo", fields: [toUserId], references: [id])
-  requestedBy         User                  @relation("TransferRequestBy", fields: [requestedByUserId], references: [id])
+  toUser              User?                 @relation("TransferRequestTo", fields: [toUserId], references: [id], onDelete: SetNull)
+  requestedBy         User?                 @relation("TransferRequestBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
   reviewedBy          User?                 @relation("TransferRequestReviewedBy", fields: [reviewedByUserId], references: [id])
 
   @@index([status, createdAt])
@@ -401,52 +414,52 @@ model OtpStageEvent {
 }
 
 model PipelineJob {
-  id                     Int                  @id @default(autoincrement())
-  pipelineType           PipelineType
-  jobId                  String               @unique
-  projectId              String?
-  client                 String
-  jobGenre               String?
-  customIdName           String?
-  customId               String?
-  salesExecutive         String?
-  jobDate                DateTime?            @db.Date
-  deliveryDate           DateTime?            @db.Date
-  jobTime                String?
-  pocName                String?
-  pocContact             String?
-  pocWhatsapp            String?
-  pocEmail               String?
-  poc2ndEmail            String?
-  jobCity                String?
-  jobShootAddress        String?
-  jobSpecification       String?
-  deliverables           String?
+  id                      Int                    @id @default(autoincrement())
+  pipelineType            PipelineType
+  jobId                   String                 @unique
+  projectId               String?
+  client                  String
+  jobGenre                String?
+  customIdName            String?
+  customId                String?
+  salesExecutive          String?
+  jobDate                 DateTime?              @db.Date
+  deliveryDate            DateTime?              @db.Date
+  jobTime                 String?
+  pocName                 String?
+  pocContact              String?
+  pocWhatsapp             String?
+  pocEmail                String?
+  poc2ndEmail             String?
+  jobCity                 String?
+  jobShootAddress         String?
+  jobSpecification        String?
+  deliverables            String?
   // Political (Job Cards) identity fields — nullable, unused by OTP/PMS.
   // `client` still holds this record's display name for Political too (set to
   // `projectName`'s value on create) so every pipelineType has one consistent
   // "what is this row" field — see docs/migration/DECISIONS.md.
-  projectName            String?
+  projectName             String?
   // Set once at News Picking (batch creation), shared across every job card
   // created in that submission — see pipelineJobService.createJobCardsBatch.
   // Editable again per-card afterward on Job Card Planning's own form.
-  plannedDate            DateTime?            @db.Date
-  type                   String?
-  voiceover              String?
-  ideaDetails            String?
-  attachmentLink         String?
-  editorName             String?
-  voiceoverPersonName    String?
-  projectCoordinatorName String?
-  pcEmail                String?
+  plannedDate             DateTime?              @db.Date
+  type                    String?
+  voiceover               String?
+  ideaDetails             String?
+  attachmentLink          String?
+  editorName              String?
+  voiceoverPersonName     String?
+  projectCoordinatorName  String?
+  pcEmail                 String?
   // Carried over from the originating OtpJob at the OTP -> PMS hand-off, so
   // PMS's stage lists can filter by the same member OTP assigned. Unused by
   // Political, which has no Assign Member stage.
-  assignedMember         String?
-  currentStage           String
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
-  stageEvents            PipelineStageEvent[]
+  assignedMember          String?
+  currentStage            String
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  stageEvents             PipelineStageEvent[]
   // Political only: which Project Order this Job Card was created under.
   // Nullable because pre-existing rows (created before this FK existed) have
   // no parent Project Order to point to — see docs/migration/DECISIONS.md.
@@ -488,12 +501,12 @@ model PipelineStageEvent {
 // Fields mirror the Project Order form fields already live in
 // pipelineJob.schemas.ts's (now removed) createPoliticalJobSchema.
 model PoliticalProjectOrder {
-  id                      Int          @id @default(autoincrement())
+  id                      Int           @id @default(autoincrement())
   // "PRJ-00001" — same count()+1 / zero-pad convention as PipelineJob.jobId
   // and every other business id in this codebase (see DECISIONS.md's
   // UUID-rejection entry). Not related to OTP's own, differently-shaped
   // no-dash projectId ("PRJ00001") on OtpJob — different table, different id space.
-  projectOrderId          String       @unique
+  projectOrderId          String        @unique
   projectName             String
   reportingPersonName     String?
   reportingPersonWhatsapp String?
@@ -504,10 +517,10 @@ model PoliticalProjectOrder {
   monthlyViewsTarget      String?
   remarks                 String?
   createdByUserId         Int?
-  createdAt               DateTime     @default(now())
-  updatedAt               DateTime     @updatedAt
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
   jobCards                PipelineJob[]
-  createdBy               User?        @relation("PoliticalProjectOrderCreatedBy", fields: [createdByUserId], references: [id])
+  createdBy               User?         @relation("PoliticalProjectOrderCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([createdAt])
   @@map("political_project_orders")
@@ -1146,14 +1159,14 @@ model AttendanceLog {
 // user+system+week, only created once a target is actually set for that
 // combination — see docs/migration/DECISIONS.md.
 model MisWeeklyTarget {
-  id          Int          @id @default(autoincrement())
-  userId      Int
-  systemKey   MisSystemKey
-  weekStart   DateTime     @db.Date
-  weekEnd     DateTime     @db.Date
+  id                      Int          @id @default(autoincrement())
+  userId                  Int
+  systemKey               MisSystemKey
+  weekStart               DateTime     @db.Date
+  weekEnd                 DateTime     @db.Date
   // Nullable: a row may exist holding only next-week planning fields
   // (submitted via "Submit Selection") before an admin sets its target.
-  target      Int?
+  target                  Int?
   // Manual planning fields for the week this row covers — entered the week
   // before via the dashboard's editable next-week cells (ports the old
   // Master "Submit Selection" flow). Actuals stay auto-calculated; these are
@@ -1161,11 +1174,12 @@ model MisWeeklyTarget {
   plannedNotDonePct       Int?
   plannedNotDoneOnTimePct Int?
   commitment              String?
-  setByUserId Int
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  user        User         @relation("MisTargetForUser", fields: [userId], references: [id])
-  setBy       User         @relation("MisTargetSetBy", fields: [setByUserId], references: [id])
+  // Nullable so a target survives the admin who set it being deleted.
+  setByUserId             Int?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+  user                    User         @relation("MisTargetForUser", fields: [userId], references: [id])
+  setBy                   User?        @relation("MisTargetSetBy", fields: [setByUserId], references: [id], onDelete: SetNull)
 
   @@unique([userId, systemKey, weekStart])
   @@index([systemKey, weekStart])

@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../config/database";
 import type { CreateUserInput, ImportUsersInput, UpdateUserDeptsInput } from "../schemas/user.schemas";
+import { findUserByUsername, normalizeUsername } from "../utils/username";
 
 const USER_SELECT = {
   id: true,
@@ -122,21 +123,76 @@ export const userService = {
     return this.getById(id);
   },
 
-  async importMany(input: ImportUsersInput) {
-    const results = { created: 0, skipped: 0, errors: [] as string[] };
+  // A username already in the system is UPDATED from the CSV (password, role,
+  // department, email) instead of skipped — otherwise anyone who already had
+  // an account silently kept their old password and the CSV login failed.
+  // Their tasks/history are untouched, and status is left as is (an INACTIVE
+  // user stays inactive and is reported so the admin knows they can't log in).
+  async importMany(input: ImportUsersInput, requesterId: number) {
+    const results = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as string[],
+      updatedUsernames: [] as string[],
+      skippedUsernames: [] as string[],
+      inactiveUsernames: [] as string[],
+    };
+
+    // Several staff share one mailbox in the source sheets, and email is
+    // unique — the first row keeps it, the rest are saved without one.
+    const emailFreeFor = async (email: string | null | undefined, userId?: number) => {
+      if (!email) return null;
+      const owner = await prisma.user.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        select: { id: true },
+      });
+      return !owner || owner.id === userId ? email : null;
+    };
 
     for (const u of input) {
+      const username = normalizeUsername(u.username);
       try {
-        const exists = await prisma.user.findUnique({ where: { username: u.username } });
-        if (exists) { results.skipped++; continue; }
-
+        const existing = await findUserByUsername(username, { id: true, username: true, status: true });
         const passwordHash = await bcrypt.hash(u.password, 10);
+
+        if (existing) {
+          // The importing admin's own row would let a sheet change their
+          // password or demote them mid-session.
+          if (existing.id === requesterId) {
+            results.skipped++;
+            results.skippedUsernames.push(`${existing.username} (your own account)`);
+            continue;
+          }
+          const email = await emailFreeFor(u.email, existing.id);
+          await prisma.user.update({
+            where: { id: existing.id },
+            data: {
+              passwordHash,
+              role: u.role ?? "USER",
+              ...(email ? { email } : {}),
+              ...(u.departmentId ? { departmentId: u.departmentId } : {}),
+            },
+          });
+          if (u.departmentId) {
+            await prisma.userDepartment.upsert({
+              where: { userId_departmentId: { userId: existing.id, departmentId: u.departmentId } },
+              create: { userId: existing.id, departmentId: u.departmentId },
+              update: {},
+            });
+          }
+          results.updated++;
+          results.updatedUsernames.push(existing.username);
+          if (existing.status === "INACTIVE") results.inactiveUsernames.push(existing.username);
+          continue;
+        }
+
         await prisma.user.create({
           data: {
-            username: u.username,
+            username,
             passwordHash,
             role: u.role ?? "USER",
-            email: u.email ?? null,
+            email: await emailFreeFor(u.email),
             departmentId: u.departmentId ?? null,
             status: "ACTIVE",
             ...(u.departmentId ? {
@@ -145,32 +201,8 @@ export const userService = {
           },
         });
         results.created++;
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        // Email uniqueness — retry without email
-        if (msg.includes("Unique constraint")) {
-          try {
-            const passwordHash = await bcrypt.hash(u.password, 10);
-            await prisma.user.create({
-              data: {
-                username: u.username,
-                passwordHash,
-                role: u.role ?? "USER",
-                email: null,
-                departmentId: u.departmentId ?? null,
-                status: "ACTIVE",
-                ...(u.departmentId ? {
-                  departments: { create: { departmentId: u.departmentId } },
-                } : {}),
-              },
-            });
-            results.created++;
-          } catch {
-            results.errors.push(u.username);
-          }
-        } else {
-          results.errors.push(u.username);
-        }
+      } catch {
+        results.errors.push(username);
       }
     }
 

@@ -61,9 +61,15 @@ export const delegationController = {
 
   async importMany(req: Request, res: Response): Promise<void> {
     try {
+      // Creates and overwrites other people's tasks — admins only.
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
       const input = importDelegationsSchema.parse(req.body);
       const result = await delegationService.importMany(input);
-      sendSuccess(res, result, "Delegation import complete");
+      sendSuccess(
+        res,
+        result,
+        `Delegation import complete: ${result.created} created, ${result.updated} updated, ${result.keptAppProgress} kept (worked on in the app), ${result.errors.length} errors`
+      );
     } catch (err: unknown) {
       if (err instanceof ZodError) {
         sendError(res, "Some rows failed validation", 400, formatZodRowErrors(err));
