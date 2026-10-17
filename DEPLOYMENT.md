@@ -70,6 +70,38 @@ running as a Windows service) manages only the **vsnapu.com web apps**
 (`vsnapu-web-test` :4300, `vsnapu-web-prod` :4301), which deploy via their own GitHub Actions
 self-hosted runner — unrelated to this backend.
 
+## Automated deploy (GitHub webhook) — no GitHub Actions, no Cloudflare change
+
+Pushes to `main` auto-deploy via a self-hosted webhook (free; no Actions minutes).
+
+**Flow:** GitHub push → `https://botivateapi.vsnapu.com/__hooks__/<token>/deploy`
+→ Cloudflare (existing record) → IIS rewrite rule → local listener `127.0.0.1:4055`
+→ verifies HMAC → runs `deploy/auto-deploy.ps1` → restarts `BotivateAPI`.
+
+**Pieces (all on the server):**
+- `deploy/webhook-listener.mjs` — zero-dep Node listener. Runs as NSSM service
+  **`VsnapDeployHook`** (SYSTEM, auto-start). Secret + port are in the service env
+  (`WEBHOOK_SECRET`, `HOOK_PORT=4055`), **not** in git.
+- `deploy/auto-deploy.ps1` — the deploy sequence (same as the manual one above),
+  logging to `C:\Tools\vsnap-deploy\deploy.log`, with an overlap lock.
+- IIS rewrite rule **"Deploy webhook"** in the site's root `web.config` (untracked;
+  backups at `C:\Tools\vsnap-deploy\web.config.bak-*`), placed before the proxy rule.
+- GitHub repo webhook: **Settings → Webhooks** → the URL above, content type
+  `application/json`, the shared secret, **Just the push event**.
+
+**Operate it:**
+```powershell
+Restart-Service VsnapDeployHook                       # after editing the listener code
+Get-Content C:\Tools\vsnap-deploy\deploy.log -Tail 40 # last deploy output
+Get-Content C:\Tools\vsnap-deploy\hook.log   -Tail 40 # listener / trigger log
+```
+The listener runs from the repo, so changes to `webhook-listener.mjs` take effect only
+after `Restart-Service VsnapDeployHook`. The secret path token and HMAC secret are held
+by the operator (not in the repo); rotate by updating the GitHub webhook, the service env,
+and the `web.config` rule together.
+
+**To pause auto-deploy:** `Stop-Service VsnapDeployHook` (or disable the GitHub webhook).
+
 ## Gotchas / do-not-repeat mistakes
 
 - **SSH "Permission denied" even though the key is in `administrators_authorized_keys`:** the
