@@ -1,4 +1,5 @@
 import { prisma } from "../config/database";
+import { invalidateMaterializeCache } from "./checklist.service";
 
 export const systemSettingsService = {
   async get() {
@@ -11,10 +12,13 @@ export const systemSettingsService = {
   },
 
   async update(data: { skipSundays?: boolean }) {
-    return prisma.systemSettings.upsert({
+    const settings = await prisma.systemSettings.upsert({
       where: { id: 1 },
       update: data,
       create: { id: 1, skipSundays: data.skipSundays ?? true },
     });
+    // skipSundays decides which days get checklist rows.
+    invalidateMaterializeCache();
+    return settings;
   },
 };
