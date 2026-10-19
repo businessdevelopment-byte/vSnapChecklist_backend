@@ -5,6 +5,11 @@ import { delegationService } from "../delegation.service";
 
 export interface MisRowPartial {
   actual: number;
+  // Tasks scheduled for the person in the week (Checklist & Delegation only;
+  // null elsewhere — those systems have no "assigned work" to count).
+  planned: number | null;
+  // Completions that were on time — same rule as onTimePct's numerator.
+  doneOnTime: number | null;
   onTimePct: number | null;
   // Cumulative completed work up to the week being viewed — only computable
   // for Checklist & Delegation today (null elsewhere).
@@ -22,6 +27,8 @@ export interface MisCalculator {
 const EPOCH = new Date("2020-01-01T00:00:00.000Z");
 const emptyRow = (): MisRowPartial => ({
   actual: 0,
+  planned: null,
+  doneOnTime: null,
   onTimePct: null,
   totalWork: null,
   weekPending: null,
@@ -42,7 +49,7 @@ const checklistDelegationCalculator: MisCalculator = {
     // Push userId down into every query instead of computing org-wide stats
     // and discarding all but one row — a non-admin's own dashboard shouldn't
     // pay the cost of scanning every other user's data.
-    const [checklistWeek, delegationWeek, checklistCumulative, delegationCumulative] =
+    const [checklistWeek, delegationWeek, checklistCumulative, delegationCumulative, projected] =
       await Promise.all([
         checklistService.getStaffStats({ startDate: weekStart, endDate: weekEnd, userId }),
         delegationService.getMisStaffStats({ startDate: weekStartISO, endDate: weekEndISO, userId }),
@@ -51,6 +58,9 @@ const checklistDelegationCalculator: MisCalculator = {
         // otherwise defaults to "today") applies our exact cutoff instead.
         checklistService.getStaffStats({ startDate: EPOCH, endDate: weekEnd, userId }),
         delegationService.getMisStaffStats({ endDate: weekEndISO, userId }),
+        // The week's remaining days (today onward) that have no real entry
+        // yet — "planned" covers the whole week from its first day.
+        checklistService.countProjectedByUser(weekStart, weekEnd, userId),
       ]);
 
     const cumulativePendingByUser = new Map<number, number>();
@@ -64,15 +74,16 @@ const checklistDelegationCalculator: MisCalculator = {
       cumulativeCompletedByUser.set(s.userId, (cumulativeCompletedByUser.get(s.userId) ?? 0) + s.done);
     }
 
-    type Acc = { actual: number; completed: number; onTime: number; weekPending: number };
+    type Acc = { planned: number; actual: number; completed: number; onTime: number; weekPending: number };
     const accByUser = new Map<number, Acc>();
     const ensure = (uid: number): Acc => {
-      if (!accByUser.has(uid)) accByUser.set(uid, { actual: 0, completed: 0, onTime: 0, weekPending: 0 });
+      if (!accByUser.has(uid)) accByUser.set(uid, { planned: 0, actual: 0, completed: 0, onTime: 0, weekPending: 0 });
       return accByUser.get(uid)!;
     };
 
     for (const s of checklistWeek) {
       const acc = ensure(s.userId);
+      acc.planned += s.total;
       acc.actual += s.completed;
       acc.completed += s.completed;
       acc.onTime += s.onTime;
@@ -80,20 +91,32 @@ const checklistDelegationCalculator: MisCalculator = {
     }
     for (const s of delegationWeek) {
       const acc = ensure(s.userId);
+      acc.planned += s.total;
       acc.actual += s.done;
       acc.completed += s.done;
       acc.onTime += s.onTime;
       acc.weekPending += s.pending;
     }
 
+    for (const [uid, count] of projected) ensure(uid).planned += count;
+    // Nothing scheduled this week can still leave an open backlog from
+    // earlier weeks — "All Pending Till Week End" has to show it.
+    for (const [uid, pending] of cumulativePendingByUser) if (pending > 0) ensure(uid);
+
     const result = new Map<number, MisRowPartial>();
     for (const [uid, acc] of accByUser) {
+      const projectedCount = projected.get(uid) ?? 0;
       result.set(uid, {
         actual: acc.actual,
+        planned: acc.planned,
+        doneOnTime: acc.onTime,
         onTimePct: acc.completed > 0 ? Math.round((acc.onTime / acc.completed) * 100) : null,
         totalWork: cumulativeCompletedByUser.get(uid) ?? 0,
+        // Real entries/tasks only — what's actually open right now.
         weekPending: acc.weekPending,
-        allPendingTillDate: cumulativePendingByUser.get(uid) ?? 0,
+        // Everything not done that is dated up to the week's end, including
+        // the week's not-yet-materialized days (all of them still to do).
+        allPendingTillDate: (cumulativePendingByUser.get(uid) ?? 0) + projectedCount,
       });
     }
 

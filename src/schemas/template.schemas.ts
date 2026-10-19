@@ -1,6 +1,14 @@
 import { z } from "zod";
 
-export const createTemplateSchema = z.object({
+// A last date before the start date leaves the template with no day it can
+// ever run on — it would list in Quick Task but never reach the Checklist.
+function lastDateNotBeforeStart(data: { startDate?: string; lastDate?: string }, ctx: z.RefinementCtx) {
+  if (data.startDate && data.lastDate && data.lastDate < data.startDate) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["lastDate"], message: "lastDate must be on or after startDate" });
+  }
+}
+
+const templateFields = z.object({
   taskCode: z.string().min(1).max(50),
   departmentId: z.number().int().positive(),
   givenBy: z.string().min(1).max(100),
@@ -27,10 +35,13 @@ export const createTemplateSchema = z.object({
   sampleImageUrl: z.string().url().optional().nullable(),
 });
 
-export const updateTemplateSchema = createTemplateSchema
+export const createTemplateSchema = templateFields.superRefine(lastDateNotBeforeStart);
+
+export const updateTemplateSchema = templateFields
   .omit({ taskCode: true })
   .partial()
-  .extend({ isActive: z.boolean().optional() });
+  .extend({ isActive: z.boolean().optional() })
+  .superRefine(lastDateNotBeforeStart);
 
 export const templateQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),

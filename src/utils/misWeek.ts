@@ -18,6 +18,16 @@ export function getWeekBounds(date: Date): { weekStart: Date; weekEnd: Date } {
   return { weekStart, weekEnd };
 }
 
-export function getCurrentWeekBounds(): { weekStart: Date; weekEnd: Date } {
-  return getWeekBounds(new Date());
+// "Today" is the server's local calendar date — the same convention the
+// checklist uses (toUtcDay in checklist.service.ts). Taking the UTC date
+// instead kept Monday 00:00–05:30 IST in the previous week, so plans saved
+// then for "next week" landed two weeks ahead.
+export function getCurrentWeekBounds(now: Date = new Date()): { weekStart: Date; weekEnd: Date } {
+  return getWeekBounds(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())));
+}
+
+/** "YYYY-MM-DD" — sent to the frontend instead of a timestamp, so a week's
+ * Sunday can't be shifted into Monday by the browser's timezone. */
+export function toDateOnly(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }

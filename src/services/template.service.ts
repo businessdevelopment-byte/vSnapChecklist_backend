@@ -1,6 +1,7 @@
 import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { pruneDeletedCodesFromPendingRequests } from "./transfer.service";
+import { invalidateMaterializeCache } from "./checklist.service";
 import type { CreateTemplateInput, UpdateTemplateInput, TemplateQueryInput, ImportTemplatesInput } from "../schemas/template.schemas";
 
 // Still on someone's to-do list — the Checklist page's Pending-tab definition.
@@ -76,7 +77,7 @@ export const templateService = {
     const existing = await prisma.taskTemplate.findUnique({ where: { taskCode: input.taskCode } });
     if (existing) throw Object.assign(new Error(`Task code "${input.taskCode}" already exists`), { status: 409 });
 
-    return prisma.taskTemplate.create({
+    const created = await prisma.taskTemplate.create({
       data: {
         taskCode: input.taskCode,
         departmentId: input.departmentId,
@@ -95,11 +96,22 @@ export const templateService = {
         assignedUser: { select: { id: true, username: true } },
       },
     });
+    // After the write, so an all-users pass can't cache a result without it.
+    invalidateMaterializeCache();
+    return created;
   },
 
   async update(id: number, input: UpdateTemplateInput) {
-    await this.getById(id);
-    return prisma.taskTemplate.update({
+    const current = await this.getById(id);
+    // Only one of the two dates may be in the request — check the pair as it will be saved.
+    const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+    const nextStart = input.startDate ?? isoDay(current.startDate);
+    const nextLast = input.lastDate ?? (current.lastDate ? isoDay(current.lastDate) : undefined);
+    if (nextLast && nextLast < nextStart) {
+      throw Object.assign(new Error("Last date must be on or after the start date"), { status: 400 });
+    }
+
+    const updated = await prisma.taskTemplate.update({
       where: { id },
       data: {
         ...input,
@@ -111,6 +123,8 @@ export const templateService = {
         assignedUser: { select: { id: true, username: true } },
       },
     });
+    invalidateMaterializeCache();
+    return updated;
   },
 
   async previewDelete(ids: number[]) {
@@ -155,7 +169,7 @@ export const templateService = {
     }
     const templateIds = templates.map((t) => t.id);
 
-    return prisma.$transaction(
+    const result = await prisma.$transaction(
       async (tx) => {
         const entries = await tx.checklistEntry.deleteMany({
           where: { templateId: { in: templateIds }, ...openEntry },
@@ -176,6 +190,8 @@ export const templateService = {
       },
       { timeout: 30_000 }
     );
+    invalidateMaterializeCache();
+    return result;
   },
 
   async importMany(input: ImportTemplatesInput) {
@@ -183,6 +199,11 @@ export const templateService = {
 
     for (const t of input) {
       try {
+        if (t.lastDate && t.lastDate < t.startDate) {
+          results.errors.push(`${t.taskCode}: last date ${t.lastDate} is before start date ${t.startDate}`);
+          continue;
+        }
+
         const dept = await prisma.department.findFirst({
           where: { name: { equals: t.departmentName, mode: "insensitive" } },
         });
@@ -221,6 +242,7 @@ export const templateService = {
       }
     }
 
+    if (results.created > 0) invalidateMaterializeCache();
     return results;
   },
 };

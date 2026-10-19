@@ -188,6 +188,8 @@ model ChecklistEntry {
   @@index([taskStartDate, assignedUserId])
   @@index([departmentId, taskStartDate])
   @@index([templateId, taskStartDate])
+  // Expired-loan cleanup + "on loan to me" lookups run on every checklist read.
+  @@index([transferredToId, transferValidUntil])
   @@map("checklist_entries")
 }
 
@@ -1174,6 +1176,8 @@ model MisWeeklyTarget {
   plannedNotDonePct       Int?
   plannedNotDoneOnTimePct Int?
   commitment              String?
+  // The week's "Image Link" (an uploaded image's URL) for this person's row.
+  imageUrl                String?
   // Nullable so a target survives the admin who set it being deleted.
   setByUserId             Int?
   createdAt               DateTime     @default(now())

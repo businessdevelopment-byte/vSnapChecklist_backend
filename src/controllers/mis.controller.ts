@@ -6,7 +6,30 @@ import {
   misHistoryQuerySchema,
   setMisTargetSchema,
   submitMisPlansSchema,
+  setMisImagesSchema,
 } from "../schemas/mis.schemas";
+import { getCurrentWeekBounds, getWeekBounds } from "../utils/misWeek";
+
+// Staff may only edit their own row, and only the one week that is open for
+// them: next week's plan (commitment) or this week's image. Admins: anyone,
+// any week. Returns an error message, or null when allowed.
+function ownRowViolation(
+  req: Request,
+  items: { userId: number; weekStart: string }[],
+  allowedWeek: "current" | "next"
+): string | null {
+  if (req.user!.role === "ADMIN") return null;
+  const current = getCurrentWeekBounds().weekStart;
+  const allowed = new Date(current);
+  if (allowedWeek === "next") allowed.setUTCDate(allowed.getUTCDate() + 7);
+  for (const item of items) {
+    if (item.userId !== req.user!.userId) return "You can only update your own MIS row";
+    if (getWeekBounds(new Date(item.weekStart)).weekStart.getTime() !== allowed.getTime()) {
+      return allowedWeek === "next" ? "Commitments can only be set for next week" : "Images can only be added for the current week";
+    }
+  }
+  return null;
+}
 
 export const misController = {
   async getDashboard(req: Request, res: Response): Promise<void> {
@@ -48,13 +71,27 @@ export const misController = {
 
   async submitPlans(req: Request, res: Response): Promise<void> {
     try {
-      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
       const input = submitMisPlansSchema.parse(req.body);
+      const violation = ownRowViolation(req, input.items, "next");
+      if (violation) { sendError(res, violation, 403); return; }
       const result = await misService.submitPlans({ items: input.items, setByUserId: req.user!.userId });
       sendSuccess(res, result, "Plans saved", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to save plans", e.status ?? 400);
+    }
+  },
+
+  async setImages(req: Request, res: Response): Promise<void> {
+    try {
+      const input = setMisImagesSchema.parse(req.body);
+      const violation = ownRowViolation(req, input.items, "current");
+      if (violation) { sendError(res, violation, 403); return; }
+      const result = await misService.setImages({ items: input.items, setByUserId: req.user!.userId });
+      sendSuccess(res, result, "Image saved", 201);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to save image", e.status ?? 400);
     }
   },
 };

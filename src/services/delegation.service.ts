@@ -60,7 +60,10 @@ export const delegationService = {
         where,
         skip,
         take,
-        orderBy: [{ status: "asc" }, { taskStartDate: "asc" }],
+        // id last: without a unique tiebreaker, tasks sharing a start date
+        // (common after an import) can swap between pages and show twice or
+        // not at all.
+        orderBy: [{ status: "asc" }, { taskStartDate: "asc" }, { id: "asc" }],
         include: {
           assignedUser: { select: { id: true, username: true } },
           department: { select: { id: true, name: true } },
