@@ -366,13 +366,16 @@ export const delegationService = {
       throw Object.assign(new Error("This task requires an attached image"), { status: 400 });
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // UTC midnight of the server's calendar day, as the import does: a local
+    // midnight here would save submissionDate (a DATE) as the day before on
+    // an IST server.
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
     // taskEndDate is the effective deadline once the task has been extended
     // at least once; taskStartDate (the fixed assignment date) is the
     // deadline only until the first extension sets a real one.
-    const deadline = new Date(task.taskEndDate ?? task.taskStartDate);
-    deadline.setHours(0, 0, 0, 0);
+    const due = new Date(task.taskEndDate ?? task.taskStartDate);
+    const deadline = new Date(Date.UTC(due.getFullYear(), due.getMonth(), due.getDate()));
     const isLate = today > deadline;
 
     const history = await prisma.delegationHistory.create({

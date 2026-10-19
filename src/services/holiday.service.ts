@@ -1,4 +1,5 @@
 import { prisma } from "../config/database";
+import { invalidateMaterializeCache } from "./checklist.service";
 
 export const holidayService = {
   async getAll() {
@@ -6,19 +7,25 @@ export const holidayService = {
   },
 
   async create(date: string, name: string) {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    return prisma.holiday.upsert({
+    // UTC midnight of the calendar day as written. The DATE column keeps the
+    // UTC day, and local midnight on an IST server is 18:30 UTC the day
+    // before — that saved every holiday one day early.
+    const d = new Date(`${date.slice(0, 10)}T00:00:00.000Z`);
+    const holiday = await prisma.holiday.upsert({
       where: { date: d },
       update: { name },
       create: { date: d, name },
     });
+    // Today's checklist rows depend on the holiday list.
+    invalidateMaterializeCache();
+    return holiday;
   },
 
   async remove(id: number) {
     const h = await prisma.holiday.findUnique({ where: { id } });
     if (!h) throw Object.assign(new Error("Holiday not found"), { status: 404 });
     await prisma.holiday.delete({ where: { id } });
+    invalidateMaterializeCache();
     return { id };
   },
 
@@ -29,13 +36,13 @@ export const holidayService = {
     const result: { date: string; type: "working" | "sunday" | "holiday"; holidayName?: string }[] = [];
 
     const cursor = new Date(fromDate);
-    cursor.setHours(0, 0, 0, 0);
+    cursor.setUTCHours(0, 0, 0, 0);
     const end = new Date(toDate);
-    end.setHours(0, 0, 0, 0);
+    end.setUTCHours(0, 0, 0, 0);
 
     while (cursor <= end) {
       const key = cursor.toISOString().split("T")[0];
-      const dow = cursor.getDay(); // 0=Sun
+      const dow = cursor.getUTCDay(); // 0=Sun
 
       if (skipSundays && dow === 0) {
         result.push({ date: key, type: "sunday" });
@@ -45,7 +52,7 @@ export const holidayService = {
         result.push({ date: key, type: "working" });
       }
 
-      cursor.setDate(cursor.getDate() + 1);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
 
     return {

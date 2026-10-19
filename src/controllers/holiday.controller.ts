@@ -4,7 +4,7 @@ import { sendSuccess, sendError } from "../utils/apiResponse";
 import { z } from "zod";
 
 const createSchema = z.object({
-  date: z.string().min(8),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Date must be YYYY-MM-DD"),
   name: z.string().min(1).max(100),
 });
 
