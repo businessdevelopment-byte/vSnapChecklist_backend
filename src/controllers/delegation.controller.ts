@@ -236,7 +236,9 @@ export const delegationController = {
   async getMisStaffStats(req: Request, res: Response): Promise<void> {
     try {
       const query = delegationMisQuerySchema.parse(req.query);
-      const data = await delegationService.getMisStaffStats(query);
+      // Non-admins never see another user's data, regardless of what's in the query string.
+      const userId = req.user!.role === "ADMIN" ? query.userId : req.user!.userId;
+      const data = await delegationService.getMisStaffStats({ ...query, userId });
       sendSuccess(res, data, "Delegation MIS staff stats fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

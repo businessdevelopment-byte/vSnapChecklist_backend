@@ -231,12 +231,21 @@ function matchingOccurrences<T extends TaskTemplate>(
 // Core backfill helper
 // ─────────────────────────────────────────
 
+// Postgres caps a statement at 65,535 bind parameters; an entry row binds 11,
+// and the first load after a big import can create tens of thousands at once.
+// Chunks are inserted a few at a time in parallel — one long serial insert
+// was slower than the old per-user fan-out — while leaving most of the
+// 10-connection pool free for other requests.
+const CREATE_CHUNK = 1000;
+const CREATE_PARALLEL = 4;
+
 /**
- * Generates all missing checklist entries for a user across a date range.
- * Respects working-day calendar (Mon-Sat, no holidays).
+ * Generates all missing checklist entries for the active templates matching
+ * `templateWhere` across a date range. Respects working-day calendar
+ * (Mon-Sat, no holidays). Shared by the per-user path and the all-users pass.
  */
-async function backfillUser(
-  userId: number,
+async function backfillTemplates(
+  templateWhere: Prisma.TaskTemplateWhereInput,
   fromDate: Date,
   toDate: Date,
   holidayKeys: Set<string>,
@@ -247,10 +256,10 @@ async function backfillUser(
   const to = new Date(toDate);
   to.setUTCHours(0, 0, 0, 0);
 
-  // Active templates for this user within the range
+  // Active templates within the range
   const templates = await prisma.taskTemplate.findMany({
     where: {
-      assignedUserId: userId,
+      ...templateWhere,
       isActive: true,
       startDate: { lte: to },
       OR: [{ lastDate: null }, { lastDate: { gte: from } }],
@@ -271,10 +280,10 @@ async function backfillUser(
 
   if (workingDays.length === 0) return 0;
 
-  // Existing entries in range (to avoid duplicates)
+  // Existing entries in range (to avoid duplicates). Keyed the same way as
+  // the (templateId, taskStartDate) unique constraint.
   const existing = await prisma.checklistEntry.findMany({
     where: {
-      assignedUserId: userId,
       taskStartDate: { gte: from, lte: to },
       templateId: { in: templates.map((t) => t.id) },
     },
@@ -304,14 +313,113 @@ async function backfillUser(
     sampleImageUrl: template.sampleImageUrl ?? null,
   }));
 
-  if (toCreate.length === 0) return 0;
+  const chunks: Prisma.ChecklistEntryCreateManyInput[][] = [];
+  for (let i = 0; i < toCreate.length; i += CREATE_CHUNK) chunks.push(toCreate.slice(i, i + CREATE_CHUNK));
 
-  const result = await prisma.checklistEntry.createMany({
-    data: toCreate,
-    skipDuplicates: true,
+  let created = 0;
+  for (let i = 0; i < chunks.length; i += CREATE_PARALLEL) {
+    const results = await Promise.all(
+      chunks
+        .slice(i, i + CREATE_PARALLEL)
+        .map((data) => prisma.checklistEntry.createMany({ data, skipDuplicates: true }))
+    );
+    created += results.reduce((sum, r) => sum + r.count, 0);
+  }
+
+  return created;
+}
+
+/** Generates all missing checklist entries for one user across a date range. */
+function backfillUser(
+  userId: number,
+  fromDate: Date,
+  toDate: Date,
+  holidayKeys: Set<string>,
+  skipSundays: boolean
+): Promise<number> {
+  return backfillTemplates({ assignedUserId: userId }, fromDate, toDate, holidayKeys, skipSundays);
+}
+
+// ─────────────────────────────────────────
+// All-users materialization (admin read paths)
+// ─────────────────────────────────────────
+
+// An admin's "all users" view used to run materializeTasks once per active
+// user (~7 queries each) on every read, and the dashboard alone makes several
+// such reads per load. One batched pass covers everyone instead; concurrent
+// callers for the same day share it, and a finished pass is reused briefly.
+const ALL_PASS_TTL_MS = 60_000;
+let allPass: { day: string; startedAt: number; promise: Promise<void> } | null = null;
+
+/** Drops the cached all-users pass so the next read regenerates (templates changed). */
+export function invalidateMaterializeCache(): void {
+  allPass = null;
+}
+
+/**
+ * Template occurrences on working days in [from, to] that have no real
+ * entry yet — the days the lazy materializer hasn't reached. Shared by
+ * previewUpcoming() (virtual rows on the Checklist page) and
+ * countProjectedByUser() (MIS "planned" for the rest of a week), so both
+ * apply the same frequency/working-day/existing-entry rules.
+ */
+async function projectOccurrences(templateWhere: Prisma.TaskTemplateWhereInput, from: Date, to: Date) {
+  const templates = await prisma.taskTemplate.findMany({
+    where: {
+      ...templateWhere,
+      isActive: true,
+      startDate: { lte: to },
+      OR: [{ lastDate: null }, { lastDate: { gte: from } }],
+    },
+    include: {
+      assignedUser: { select: { id: true, username: true } },
+      department: { select: { id: true, name: true } },
+    },
   });
+  if (templates.length === 0) return [];
 
-  return result.count;
+  const { holidayKeys, skipSundays } = await loadCalendarConfig();
+
+  const workingDays: Date[] = [];
+  const cursor = new Date(from);
+  while (cursor <= to) {
+    if (isWorkingDay(cursor, holidayKeys, skipSundays)) {
+      workingDays.push(new Date(cursor));
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  if (workingDays.length === 0) return [];
+
+  // Skip any (template, day) that already has a real materialized entry —
+  // e.g. an admin already ran /checklist/backfill ahead of time.
+  const existing = await prisma.checklistEntry.findMany({
+    where: {
+      taskStartDate: { gte: from, lte: to },
+      templateId: { in: templates.map((t) => t.id) },
+    },
+    select: { templateId: true, taskStartDate: true },
+  });
+  const existingKeys = new Set(existing.map((e) => `${e.templateId}__${dateKey(e.taskStartDate)}`));
+
+  return matchingOccurrences(templates, workingDays, existingKeys);
+}
+
+async function runAllActivePass(today: Date): Promise<void> {
+  const { holidayKeys, skipSundays } = await loadCalendarConfig();
+
+  // Same 30-day window as materializeTasks; days before a template's own
+  // start date are skipped by matchingOccurrences, so starting every template
+  // at the window edge yields exactly the per-user result.
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
+
+  await backfillTemplates(
+    { assignedUser: { status: "ACTIVE" } },
+    thirtyDaysAgo,
+    today,
+    holidayKeys,
+    skipSundays
+  );
 }
 
 // ─────────────────────────────────────────
@@ -368,6 +476,30 @@ export const checklistService = {
   },
 
   /**
+   * The all-users equivalent of materializeTasks(), for admin views with no
+   * user selected. One batched pass for every ACTIVE user; concurrent callers
+   * for the same day share it, and a finished pass is reused for
+   * ALL_PASS_TTL_MS (template writes call invalidateMaterializeCache()).
+   */
+  async materializeAllActive(targetDate: Date): Promise<void> {
+    const today = new Date(targetDate);
+    today.setUTCHours(0, 0, 0, 0);
+    const day = dateKey(today);
+
+    if (allPass && allPass.day === day && Date.now() - allPass.startedAt < ALL_PASS_TTL_MS) {
+      return allPass.promise;
+    }
+
+    const pass = { day, startedAt: Date.now(), promise: runAllActivePass(today) };
+    allPass = pass;
+    // A failed pass must not be reused — the next read retries it.
+    pass.promise.catch(() => {
+      if (allPass === pass) allPass = null;
+    });
+    return pass.promise;
+  },
+
+  /**
    * Materializes real entries for exactly the requested range, no more —
    * used by mutations (mark leave, transfer) that need real rows to act on,
    * unlike materializeTasks() above (read path, always backfills to "today").
@@ -408,11 +540,7 @@ export const checklistService = {
     if (userId) {
       await this.materializeTasks(userId, targetDate);
     } else if (requesterRole === "ADMIN" && !query.userId) {
-      const activeUsers = await prisma.user.findMany({
-        where: { status: "ACTIVE" },
-        select: { id: true },
-      });
-      await Promise.all(activeUsers.map((u) => this.materializeTasks(u.id, targetDate)));
+      await this.materializeAllActive(targetDate);
     }
 
     const where: Prisma.ChecklistEntryWhereInput = {};
@@ -478,7 +606,9 @@ export const checklistService = {
         where,
         skip,
         take,
-        orderBy: [{ taskStartDate: "asc" }, { assignedUserId: "asc" }],
+        // id last: without a unique tiebreaker, rows sharing a date and user
+        // can swap between page requests and show twice or not at all.
+        orderBy: [{ taskStartDate: "asc" }, { assignedUserId: "asc" }, { id: "asc" }],
         include: {
           assignedUser: { select: { id: true, username: true } },
           department: { select: { id: true, name: true } },
@@ -522,6 +652,35 @@ export const checklistService = {
    * up to today. Reuses matchingOccurrences() so the frequency/working-day
    * rules stay identical to the real backfill path.
    */
+  /**
+   * Per-user count of checklist occurrences in [fromDate, toDate] that have
+   * no real entry yet, counted from today onward — MIS "planned" for the
+   * rest of a week, which the lazy materializer hasn't reached. ACTIVE users
+   * only, matching getStaffStats(). Takes UTC-midnight-based week bounds.
+   */
+  async countProjectedByUser(fromDate: Date, toDate: Date, userId?: number): Promise<Map<number, number>> {
+    const utcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const today = toUtcDay(new Date());
+    const rangeStart = utcDay(fromDate);
+    const rangeEnd = utcDay(toDate);
+    const from = rangeStart > today ? rangeStart : today;
+
+    const counts = new Map<number, number>();
+    if (from > rangeEnd) return counts;
+
+    const occurrences = await projectOccurrences(
+      userId != null
+        ? { assignedUserId: userId, assignedUser: { status: "ACTIVE" } }
+        : { assignedUser: { status: "ACTIVE" } },
+      from,
+      rangeEnd
+    );
+    for (const { template } of occurrences) {
+      counts.set(template.assignedUserId, (counts.get(template.assignedUserId) ?? 0) + 1);
+    }
+    return counts;
+  },
+
   async previewUpcoming(query: PreviewQueryInput, requesterId: number, requesterRole: string) {
     const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
 
@@ -536,50 +695,12 @@ export const checklistService = {
     if (from > rangeEnd) return { data: [], truncated: false };
 
     const templateWhere: Prisma.TaskTemplateWhereInput = {
-      isActive: true,
-      startDate: { lte: rangeEnd },
-      OR: [{ lastDate: null }, { lastDate: { gte: from } }],
       ...(query.departmentId ? { departmentId: query.departmentId } : {}),
       ...(userId ? { assignedUserId: userId } : { assignedUser: { status: "ACTIVE" } }),
     };
 
-    const templates = await prisma.taskTemplate.findMany({
-      where: templateWhere,
-      include: {
-        assignedUser: { select: { id: true, username: true } },
-        department: { select: { id: true, name: true } },
-      },
-    });
-
-    if (templates.length === 0) return { data: [], truncated: false };
-
-    const { holidayKeys, skipSundays } = await loadCalendarConfig();
-
-    const workingDays: Date[] = [];
-    const cursor = new Date(from);
-    while (cursor <= rangeEnd) {
-      if (isWorkingDay(cursor, holidayKeys, skipSundays)) {
-        workingDays.push(new Date(cursor));
-      }
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-    }
-
-    if (workingDays.length === 0) return { data: [], truncated: false };
-
-    // Skip any (template, day) that already has a real materialized entry —
-    // e.g. an admin already ran /checklist/backfill ahead of time.
-    const existing = await prisma.checklistEntry.findMany({
-      where: {
-        taskStartDate: { gte: from, lte: rangeEnd },
-        templateId: { in: templates.map((t) => t.id) },
-      },
-      select: { templateId: true, taskStartDate: true },
-    });
-    const existingKeys = new Set(
-      existing.map((e) => `${e.templateId}__${dateKey(e.taskStartDate)}`)
-    );
-
-    let occurrences = matchingOccurrences(templates, workingDays, existingKeys);
+    let occurrences = await projectOccurrences(templateWhere, from, rangeEnd);
+    if (occurrences.length === 0) return { data: [], truncated: false };
 
     const search = query.search?.trim().toLowerCase();
     if (search) {
@@ -692,32 +813,31 @@ export const checklistService = {
         : {}),
     };
 
-    const [total, completed, leave] = await Promise.all([
+    const [total, completed, leave, overdue] = await Promise.all([
       prisma.checklistEntry.count({ where: { ...baseWhere, leaveStatus: false } }),
       prisma.checklistEntry.count({ where: { ...baseWhere, actualDate: { not: null }, leaveStatus: false } }),
       prisma.checklistEntry.count({ where: { ...baseWhere, leaveStatus: true } }),
+      // Overdue always means "before today," full stop — it ignores
+      // baseWhere's taskStartDate bounds entirely (both, not just the upper
+      // one), same reasoning as getEntries' "overdue" branch: that range
+      // describes which day's snapshot the other counts are using, which has
+      // nothing to do with what's overdue. Previously this carried over
+      // baseWhere's lower bound if present, which silently zeroed this badge
+      // under the page's own default filter (startDate=endDate=today merges
+      // to an impossible {gte: today, lt: today}) unless something else had
+      // cleared it first.
+      prisma.checklistEntry.count({
+        where: {
+          ...baseWhere,
+          actualDate: null,
+          adminDone: false,
+          leaveStatus: false,
+          taskStartDate: { lt: today },
+        },
+      }),
     ]);
 
     const pending = total - completed;
-    // Overdue always means "before today," full stop — it ignores
-    // baseWhere's taskStartDate bounds entirely (both, not just the upper
-    // one), same reasoning as getEntries' "overdue" branch: that range
-    // describes which day's snapshot the other four counts above are using,
-    // which has nothing to do with what's overdue. Previously this carried
-    // over baseWhere's lower bound if present, which silently zeroed this
-    // badge under the page's own default filter (startDate=endDate=today
-    // merges to an impossible {gte: today, lt: today}) unless something else
-    // had cleared it first.
-    const overdue = await prisma.checklistEntry.count({
-      where: {
-        ...baseWhere,
-        actualDate: null,
-        adminDone: false,
-        leaveStatus: false,
-        taskStartDate: { lt: today },
-      },
-    });
-
     const completionRate = total > 0 ? ((completed / total) * 100).toFixed(1) : "0.0";
     return { total, completed, pending, overdue, leave, completionRate: parseFloat(completionRate) };
   },
@@ -735,7 +855,14 @@ export const checklistService = {
     // Sunday) still reflects live, current ownership rather than a
     // not-yet-happened loan expiry — only genuinely past weeks are affected.
     const now = toUtcDay(new Date());
-    const asOf = endDate ? new Date(Math.min(toUtcDay(endDate).getTime(), now.getTime())) : now;
+    // endDate's own calendar day, read in UTC — callers pass UTC midnight
+    // ("YYYY-MM-DD") or a week's Sunday 23:59:59.999Z, and toUtcDay's local
+    // read turned the latter into Monday in IST (so a loan ending on the
+    // week's Sunday counted as already expired for that week).
+    const endDay = endDate
+      ? new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate()))
+      : now;
+    const asOf = new Date(Math.min(endDay.getTime(), now.getTime()));
 
     // No assignedUserId/userId filter here — a task on loan to `userId` won't
     // have assignedUserId === userId, so filtering by userId at the query
@@ -752,71 +879,76 @@ export const checklistService = {
           : { lte: today },
     };
 
-    const entries = await prisma.checklistEntry.findMany({
-      where,
-      select: {
-        assignedUserId: true,
-        actualDate: true,
-        adminDone: true,
-        delayDays: true,
-        transferredToId: true,
-        transferValidUntil: true,
-        assignedUser: { select: { username: true, email: true } },
-        transferredTo: { select: { username: true, email: true } },
-      },
+    // Counted in the database, grouped by everything that decides an entry's
+    // effective owner — the group count stays tiny however many rows match,
+    // instead of loading every matching entry into memory.
+    const [totals, completedGroups, onTimeGroups] = await Promise.all([
+      prisma.checklistEntry.groupBy({
+        by: ["assignedUserId", "transferredToId", "transferValidUntil"],
+        where,
+        _count: { _all: true },
+      }),
+      prisma.checklistEntry.groupBy({
+        by: ["assignedUserId", "transferredToId", "transferValidUntil"],
+        where: { AND: [where, { OR: [{ actualDate: { not: null } }, { adminDone: true }] }] },
+        _count: { _all: true },
+      }),
+      // MIS on-time metric — used by mis.service.ts's Checklist & Delegation
+      // calculator. delayDays is only ever computed by submitEntry() at the
+      // same time as actualDate — markAdminDone() never sets it, so an
+      // adminDone-only completion always has delayDays === null with no real
+      // evidence of lateness. Require actualDate before crediting on-time, so
+      // those entries count as completed but not as on-time.
+      prisma.checklistEntry.groupBy({
+        by: ["assignedUserId", "transferredToId", "transferValidUntil"],
+        where: {
+          AND: [where, { actualDate: { not: null } }, { OR: [{ delayDays: null }, { delayDays: { lte: 0 } }] }],
+        },
+        _count: { _all: true },
+      }),
+    ]);
+
+    // A task currently on an active loan counts toward the transferee, not
+    // the permanent assignee — otherwise the receiving staff member's totals
+    // never reflect work they're actually holding/doing, and the original
+    // assignee gets credited for work they didn't do.
+    const ownerOf = (g: { assignedUserId: number; transferredToId: number | null; transferValidUntil: Date | null }) =>
+      g.transferredToId != null && g.transferValidUntil != null && g.transferValidUntil >= asOf
+        ? g.transferredToId
+        : g.assignedUserId;
+
+    const staffMap = new Map<number, { total: number; completed: number; onTime: number }>();
+    const tally = (groups: typeof totals, field: "total" | "completed" | "onTime") => {
+      for (const g of groups) {
+        const ownerId = ownerOf(g);
+        if (userId != null && ownerId !== userId) continue;
+        const s = staffMap.get(ownerId) ?? { total: 0, completed: 0, onTime: 0 };
+        s[field] += g._count._all;
+        staffMap.set(ownerId, s);
+      }
+    };
+    tally(totals, "total");
+    tally(completedGroups, "completed");
+    tally(onTimeGroups, "onTime");
+
+    const owners = await prisma.user.findMany({
+      where: { id: { in: [...staffMap.keys()] } },
+      select: { id: true, username: true, email: true },
     });
-
-    const staffMap = new Map<
-      number,
-      { username: string; email: string; total: number; completed: number; onTime: number }
-    >();
-    for (const e of entries) {
-      // A task currently on an active loan counts toward the transferee, not
-      // the permanent assignee — otherwise the receiving staff member's
-      // totals never reflect work they're actually holding/doing, and the
-      // original assignee gets credited for work they didn't do.
-      const isOnLoan = e.transferredToId != null && e.transferValidUntil != null && e.transferValidUntil >= asOf;
-      const ownerId = isOnLoan ? e.transferredToId! : e.assignedUserId;
-      if (userId != null && ownerId !== userId) continue;
-
-      const owner = isOnLoan ? (e.transferredTo ?? e.assignedUser) : e.assignedUser;
-
-      if (!staffMap.has(ownerId)) {
-        staffMap.set(ownerId, {
-          username: owner.username,
-          email: owner.email ?? "",
-          total: 0,
-          completed: 0,
-          onTime: 0,
-        });
-      }
-      const s = staffMap.get(ownerId)!;
-      s.total++;
-      const isCompleted = e.actualDate || e.adminDone;
-      if (isCompleted) {
-        s.completed++;
-        // MIS on-time metric — used by mis.service.ts's Checklist & Delegation
-        // calculator. delayDays is only ever computed by submitEntry() at the
-        // same time as actualDate — markAdminDone() never sets it, so an
-        // adminDone-only completion always has delayDays === null with no
-        // real evidence of lateness. Require actualDate before crediting
-        // on-time, so those entries count as completed but not as on-time.
-        if (e.actualDate && (e.delayDays === null || e.delayDays <= 0)) s.onTime++;
-      }
-    }
+    const ownerById = new Map(owners.map((u) => [u.id, u]));
 
     return Array.from(staffMap.entries())
       .map(([id, s]) => ({
         userId: id,
-        username: s.username,
-        email: s.email,
+        username: ownerById.get(id)?.username ?? "",
+        email: ownerById.get(id)?.email ?? "",
         total: s.total,
         completed: s.completed,
         onTime: s.onTime,
         pending: s.total - s.completed,
         progress: s.total > 0 ? Math.round((s.completed / s.total) * 100) : 0,
       }))
-      .sort((a, b) => b.progress - a.progress);
+      .sort((a, b) => b.progress - a.progress || a.username.localeCompare(b.username));
   },
 
   async getMonthlyStats(year: number, userId?: number, departmentId?: number) {
@@ -837,10 +969,16 @@ export const checklistService = {
       ...(departmentId ? { departmentId } : {}),
     };
 
-    const entries = await prisma.checklistEntry.findMany({
-      where,
-      select: { taskStartDate: true, actualDate: true, adminDone: true },
-    });
+    // Per-day counts from the database (at most 366 groups), bucketed into
+    // months here — instead of loading a whole year of entries.
+    const [perDay, completedPerDay] = await Promise.all([
+      prisma.checklistEntry.groupBy({ by: ["taskStartDate"], where, _count: { _all: true } }),
+      prisma.checklistEntry.groupBy({
+        by: ["taskStartDate"],
+        where: { AND: [where, { OR: [{ actualDate: { not: null } }, { adminDone: true }] }] },
+        _count: { _all: true },
+      }),
+    ]);
 
     const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const months = Array.from({ length: 12 }, (_, i) => ({
@@ -850,13 +988,11 @@ export const checklistService = {
       pending: 0,
     }));
 
-    for (const e of entries) {
-      const m = new Date(e.taskStartDate).getUTCMonth();
-      if (e.actualDate || e.adminDone) {
-        months[m].completed++;
-      } else {
-        months[m].pending++;
-      }
+    for (const g of perDay) months[new Date(g.taskStartDate).getUTCMonth()].pending += g._count._all;
+    for (const g of completedPerDay) {
+      const m = new Date(g.taskStartDate).getUTCMonth();
+      months[m].completed += g._count._all;
+      months[m].pending -= g._count._all;
     }
 
     return months;
@@ -969,11 +1105,7 @@ export const checklistService = {
     if (userId) {
       await this.materializeTasks(userId, today);
     } else if (requesterRole === "ADMIN" && !filterUserId) {
-      const activeUsers = await prisma.user.findMany({
-        where: { status: "ACTIVE" },
-        select: { id: true },
-      });
-      await Promise.all(activeUsers.map((u) => this.materializeTasks(u.id, today)));
+      await this.materializeAllActive(today);
     }
 
     const where: Prisma.ChecklistEntryWhereInput = {

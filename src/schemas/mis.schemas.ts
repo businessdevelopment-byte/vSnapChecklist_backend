@@ -36,9 +36,10 @@ export const submitMisPlansSchema = z.object({
         userId: z.coerce.number().int().positive(),
         systemKey: misSystemKeyEnum,
         weekStart: z.string().min(1, "Week is required"),
-        plannedNotDonePct: z.coerce.number().int().min(0).max(100).optional(),
-        plannedNotDoneOnTimePct: z.coerce.number().int().min(0).max(100).optional(),
-        commitment: z.string().max(1000).optional(),
+        // Left out = keep the stored value; null = clear it.
+        plannedNotDonePct: z.number().int().min(0).max(100).nullable().optional(),
+        plannedNotDoneOnTimePct: z.number().int().min(0).max(100).nullable().optional(),
+        commitment: z.string().max(1000).nullable().optional(),
       })
     )
     .min(1, "At least one item is required")
@@ -46,3 +47,19 @@ export const submitMisPlansSchema = z.object({
 });
 
 export type SubmitMisPlansInput = z.infer<typeof submitMisPlansSchema>;
+
+export const setMisImagesSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        userId: z.coerce.number().int().positive(),
+        systemKey: misSystemKeyEnum,
+        weekStart: z.string().min(1, "Week is required"),
+        imageUrl: z.string().min(1).max(2000).nullable(),
+      })
+    )
+    .min(1, "At least one item is required")
+    .max(200),
+});
+
+export type SetMisImagesInput = z.infer<typeof setMisImagesSchema>;

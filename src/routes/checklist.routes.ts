@@ -8,8 +8,8 @@ router.use(authMiddleware);
 
 // Stats & aggregates
 router.get("/stats", checklistController.getStats);
-router.get("/staff-stats", checklistController.getStaffStats); // admin
-router.get("/monthly-stats", checklistController.getMonthlyStats); // admin
+router.get("/staff-stats", checklistController.getStaffStats); // non-admins: own row only
+router.get("/monthly-stats", checklistController.getMonthlyStats); // non-admins: own data only
 router.get("/calendar-summary", checklistController.getCalendarSummary);
 router.get("/preview", checklistController.previewUpcoming); // read-only projection, no DB writes
 router.get("/history", checklistController.getHistory);

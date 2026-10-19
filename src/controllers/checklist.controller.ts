@@ -93,7 +93,10 @@ export const checklistController = {
       const departmentId = req.query.departmentId ? Number(req.query.departmentId) : undefined;
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-      const userId = req.query.userId ? Number(req.query.userId) : undefined;
+      // Non-admins never see another user's data, regardless of what's in the query string.
+      const userId = req.user!.role === "ADMIN"
+        ? (req.query.userId ? Number(req.query.userId) : undefined)
+        : req.user!.userId;
       const stats = await checklistService.getStaffStats({ startDate, endDate, departmentId, userId });
       sendSuccess(res, stats, "Staff stats fetched");
     } catch (err: unknown) {
@@ -105,7 +108,10 @@ export const checklistController = {
   async getMonthlyStats(req: Request, res: Response): Promise<void> {
     try {
       const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
-      const userId = req.query.userId ? Number(req.query.userId) : undefined;
+      // Non-admins never see another user's data, regardless of what's in the query string.
+      const userId = req.user!.role === "ADMIN"
+        ? (req.query.userId ? Number(req.query.userId) : undefined)
+        : req.user!.userId;
       const departmentId = req.query.departmentId ? Number(req.query.departmentId) : undefined;
       const stats = await checklistService.getMonthlyStats(year, userId, departmentId);
       sendSuccess(res, stats, "Monthly stats fetched");
