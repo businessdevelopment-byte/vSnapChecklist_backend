@@ -11,6 +11,7 @@ import type {
   DelegationMisQueryInput,
   ImportDelegationsInput,
 } from "../schemas/delegation.schemas";
+import { REPORT_MAX_ROWS, tooManyRowsError, type ReportQueryInput } from "../schemas/report.schemas";
 
 // delegation_tasks.taskStartDate is a real datetime (unlike checklist_entries,
 // which is date-only) — a bare "endDate" string parses to midnight UTC, which
@@ -19,6 +20,17 @@ function endOfDay(dateStr: string): Date {
   const d = new Date(dateStr);
   d.setUTCHours(23, 59, 59, 999);
   return d;
+}
+
+// DATE columns come back as UTC midnight, so their key is the UTC date.
+function dateColumnKey(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+// Datetime columns read as the server's own calendar day — the same reading
+// submit() uses to decide whether a submission was late.
+function serverDayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export const delegationService = {
@@ -362,6 +374,16 @@ export const delegationService = {
   async submit(id: number, input: SubmitDelegationInput, submittedByUserId: number) {
     const task = await this.getById(id);
 
+    if (task.isDeleted) {
+      throw Object.assign(new Error("This task has been deleted"), { status: 409 });
+    }
+    if (task.status === "VERIFY_PENDING") {
+      throw Object.assign(new Error("Already submitted — waiting for admin approval"), { status: 409 });
+    }
+    if (task.status === "DONE") {
+      throw Object.assign(new Error("This task is already completed"), { status: 409 });
+    }
+
     if (task.requireAttachment && !input.imageUrl) {
       throw Object.assign(new Error("This task requires an attached image"), { status: 400 });
     }
@@ -378,42 +400,48 @@ export const delegationService = {
     const deadline = new Date(Date.UTC(due.getFullYear(), due.getMonth(), due.getDate()));
     const isLate = today > deadline;
 
-    const history = await prisma.delegationHistory.create({
-      data: {
-        delegationTaskId: id,
-        submittedByUserId,
-        submissionDate: today,
-        status: input.status,
-        nextTargetDate: input.nextTargetDate ? new Date(input.nextTargetDate) : undefined,
-        remarks: input.remarks,
-        imageUrl: input.imageUrl,
-        taskDescription: task.description,
-        givenBy: task.givenBy,
-        isLate,
-        // "Done" submissions wait for admin verification (see approveSubmission/
-        // rejectSubmission below) before they actually count as complete.
-        // "Extend date" isn't a completion claim, so it needs no review.
-        reviewStatus: input.status === "DONE" ? "PENDING" : undefined,
-      },
-    });
-
     // After user submits "Done" → VERIFY_PENDING until admin approves it
     // After user submits "Extend date" → move to PLANNED
     const newStatus = input.status === "DONE" ? "VERIFY_PENDING" : "PLANNED";
     const isExtending = input.status === "EXTEND_DATE" && !!input.nextTargetDate;
 
-    await prisma.delegationTask.update({
-      where: { id },
-      data: {
-        status: newStatus,
-        // taskStartDate is the fixed assignment date and is never touched by
-        // an extension — only taskEndDate (the effective deadline) moves,
-        // and moves again on every subsequent extension.
-        ...(isExtending && { taskEndDate: new Date(input.nextTargetDate!) }),
-      },
-    });
+    return prisma.$transaction(async (tx) => {
+      // The status change doubles as the lock: it only matches while the task
+      // is still open, so a retry or double-click that slipped past the check
+      // above can't queue a second "Done" for approval.
+      const claimed = await tx.delegationTask.updateMany({
+        where: { id, isDeleted: false, status: { in: ["PENDING", "PLANNED"] } },
+        data: {
+          status: newStatus,
+          // taskStartDate is the fixed assignment date and is never touched by
+          // an extension — only taskEndDate (the effective deadline) moves,
+          // and moves again on every subsequent extension.
+          ...(isExtending && { taskEndDate: new Date(input.nextTargetDate!) }),
+        },
+      });
+      if (claimed.count === 0) {
+        throw Object.assign(new Error("Already submitted — refresh the list"), { status: 409 });
+      }
 
-    return history;
+      return tx.delegationHistory.create({
+        data: {
+          delegationTaskId: id,
+          submittedByUserId,
+          submissionDate: today,
+          status: input.status,
+          nextTargetDate: input.nextTargetDate ? new Date(input.nextTargetDate) : undefined,
+          remarks: input.remarks,
+          imageUrl: input.imageUrl,
+          taskDescription: task.description,
+          givenBy: task.givenBy,
+          isLate,
+          // "Done" submissions wait for admin verification (see approveSubmission/
+          // rejectSubmission below) before they actually count as complete.
+          // "Extend date" isn't a completion claim, so it needs no review.
+          reviewStatus: input.status === "DONE" ? "PENDING" : undefined,
+        },
+      });
+    });
   },
 
   async getHistory(query: DelegationHistoryQueryInput, requesterId: number, requesterRole: string) {
@@ -634,6 +662,110 @@ export const delegationService = {
         progress: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0,
       }))
       .sort((a, b) => b.progress - a.progress);
+  },
+
+  /**
+   * Every delegation task assigned in [startDate, endDate] (the same
+   * taskStartDate filter the Delegation page uses) plus a per-person
+   * summary following getMisStaffStats()'s definitions, for the Download
+   * Report page.
+   */
+  async getReport(query: ReportQueryInput, requesterId: number, requesterRole: string) {
+    const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
+
+    const where: Prisma.DelegationTaskWhereInput = {
+      isDeleted: false,
+      taskStartDate: { gte: new Date(query.startDate), lte: endOfDay(query.endDate) },
+      ...(userId ? { assignedUserId: userId } : {}),
+      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+    };
+
+    const count = await prisma.delegationTask.count({ where });
+    if (count > REPORT_MAX_ROWS) throw tooManyRowsError("delegation", count);
+
+    const tasks = await prisma.delegationTask.findMany({
+      where,
+      orderBy: [{ taskStartDate: "asc" }, { id: "asc" }],
+      select: {
+        taskCode: true,
+        givenBy: true,
+        description: true,
+        frequency: true,
+        taskStartDate: true,
+        taskEndDate: true,
+        status: true,
+        assignedUser: { select: { id: true, username: true } },
+        department: { select: { name: true } },
+        history: {
+          orderBy: { createdAt: "desc" },
+          select: { submissionDate: true, status: true, remarks: true, imageUrl: true, isLate: true, reviewStatus: true },
+        },
+      },
+    });
+
+    const now = new Date();
+    const today = serverDayKey(now);
+
+    const tallies = new Map<
+      number,
+      { userId: number; username: string; total: number; done: number; onTime: number; verifyPending: number; pending: number; overdue: number }
+    >();
+
+    const rows = tasks.map((t) => {
+      // taskEndDate is the effective deadline once extended; until then the
+      // fixed assignment date is — the same rule submit() applies.
+      const deadline = serverDayKey(t.taskEndDate ?? t.taskStartDate);
+      const isOpen = t.status === "PENDING" || t.status === "PLANNED";
+      const overdue = isOpen && today > deadline;
+      const latest = t.history[0];
+      const latestDone = t.history.find((h) => h.status === "DONE");
+      // The approved "Done" is the submission that actually completed the
+      // task (see approveSubmission()); an earlier rejected one doesn't count.
+      const approvedDone = t.history.find((h) => h.status === "DONE" && h.reviewStatus === "APPROVED");
+
+      const s = tallies.get(t.assignedUser.id) ?? {
+        userId: t.assignedUser.id, username: t.assignedUser.username,
+        total: 0, done: 0, onTime: 0, verifyPending: 0, pending: 0, overdue: 0,
+      };
+      s.total++;
+      if (t.status === "DONE") {
+        s.done++;
+        if (approvedDone?.isLate === false) s.onTime++;
+      } else if (t.status === "VERIFY_PENDING") {
+        s.verifyPending++;
+      } else {
+        s.pending++;
+      }
+      if (overdue) s.overdue++;
+      tallies.set(t.assignedUser.id, s);
+
+      return {
+        taskCode: t.taskCode,
+        department: t.department.name,
+        givenBy: t.givenBy,
+        assignedTo: t.assignedUser.username,
+        description: t.description,
+        frequency: t.frequency,
+        assignedOn: serverDayKey(t.taskStartDate),
+        deadline,
+        status: t.status,
+        overdue,
+        extensions: t.history.filter((h) => h.status === "EXTEND_DATE").length,
+        lastUpdateOn: latest ? dateColumnKey(latest.submissionDate) : null,
+        lastAction: latest?.status ?? null,
+        lastRemarks: latest?.remarks ?? null,
+        reviewStatus: latestDone?.reviewStatus ?? null,
+        completedOn: approvedDone ? dateColumnKey(approvedDone.submissionDate) : null,
+        submittedLate: approvedDone ? approvedDone.isLate : null,
+        attachmentUrl: t.history.find((h) => h.imageUrl)?.imageUrl ?? null,
+      };
+    });
+
+    const summary = [...tallies.values()]
+      .map((s) => ({ ...s, completionRate: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0 }))
+      .sort((a, b) => a.username.localeCompare(b.username));
+
+    return { rows, summary };
   },
 
   async getStatusCounts(userId: number | undefined, requesterRole: string, requesterId: number) {

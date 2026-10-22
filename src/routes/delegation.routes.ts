@@ -11,6 +11,7 @@ router.get("/history",          delegationController.getHistory);
 router.get("/status-counts",    delegationController.getStatusCounts);
 router.get("/mis-stats",        delegationController.getMisStats);
 router.get("/mis-staff-stats",  delegationController.getMisStaffStats);
+router.get("/report",           delegationController.getReport);             // Download Report page; non-admins: own data only
 router.post("/admin-done",      delegationController.markHistoryAdminDone);  // admin
 router.get("/submissions",      delegationController.listSubmissions);       // admin
 router.post("/import",          delegationController.importMany);

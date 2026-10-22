@@ -49,10 +49,28 @@ export const ACCESS_COOKIE_OPTS: CookieOptions = {
 // with, or the browser won't recognize it as the same cookie to remove.
 const CLEAR_COOKIE_OPTS: CookieOptions = { path: "/", domain: env.COOKIE_DOMAIN };
 
+// Before COOKIE_DOMAIN existed (2026-08-01) prod set host-only cookies, and a
+// browser keeps those alongside the domain ones under the same name — sending
+// both, older first, so cookie-parser reads the stale token and the session
+// fails right after a successful login. A clear without a domain removes only
+// that host-only copy.
+function clearLegacyHostOnlyCookies(res: Response): void {
+  if (!env.COOKIE_DOMAIN) return;
+  res.clearCookie("refreshToken", { path: "/" });
+  res.clearCookie("accessToken", { path: "/" });
+}
+
+export function setAuthCookies(res: Response, refreshToken: string, accessToken: string): void {
+  clearLegacyHostOnlyCookies(res);
+  res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTS);
+  res.cookie("accessToken", accessToken, ACCESS_COOKIE_OPTS);
+}
+
 // Also used whenever a session turns out to be dead (failed refresh, deleted
 // or deactivated user) — no point leaving a token the browser will keep
 // sending on every request only to be rejected.
 export function clearAuthCookies(res: Response): void {
+  clearLegacyHostOnlyCookies(res);
   res.clearCookie("refreshToken", CLEAR_COOKIE_OPTS);
   res.clearCookie("accessToken", CLEAR_COOKIE_OPTS);
 }
