@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { ZodError } from "zod";
 import { checklistService } from "../services/checklist.service";
 import { sendSuccess, sendPaginated, sendError } from "../utils/apiResponse";
 import {
@@ -11,8 +12,24 @@ import {
   transferredInQuerySchema,
   leaveLogsQuerySchema,
 } from "../schemas/checklist.schemas";
+import { reportQuerySchema } from "../schemas/report.schemas";
 
 export const checklistController = {
+  async getReport(req: Request, res: Response): Promise<void> {
+    try {
+      const query = reportQuerySchema.parse(req.query);
+      const result = await checklistService.getReport(query, req.user!.userId, req.user!.role);
+      sendSuccess(res, result, "Checklist report generated");
+    } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, err.issues[0]?.message ?? "Invalid report filters", 400);
+        return;
+      }
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to generate checklist report", e.status ?? 500);
+    }
+  },
+
   async getEntries(req: Request, res: Response): Promise<void> {
     try {
       const query = checklistQuerySchema.parse(req.query);

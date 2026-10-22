@@ -14,6 +14,7 @@ import {
   importDelegationsSchema,
   deleteDelegationsSchema,
 } from "../schemas/delegation.schemas";
+import { reportQuerySchema } from "../schemas/report.schemas";
 
 function parseTaskId(req: Request, res: Response): number | null {
   const id = Number(req.params.id);
@@ -33,6 +34,21 @@ export const delegationController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch delegation tasks", e.status ?? 500);
+    }
+  },
+
+  async getReport(req: Request, res: Response): Promise<void> {
+    try {
+      const query = reportQuerySchema.parse(req.query);
+      const result = await delegationService.getReport(query, req.user!.userId, req.user!.role);
+      sendSuccess(res, result, "Delegation report generated");
+    } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, err.issues[0]?.message ?? "Invalid report filters", 400);
+        return;
+      }
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to generate delegation report", e.status ?? 500);
     }
   },
 

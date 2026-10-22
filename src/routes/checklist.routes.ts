@@ -15,6 +15,7 @@ router.get("/preview", checklistController.previewUpcoming); // read-only projec
 router.get("/history", checklistController.getHistory);
 router.get("/transferred-in", checklistController.getTransferredIn); // tasks currently on loan to me
 router.get("/leave-logs", checklistController.getLeaveLogs); // audit trail for markLeave()
+router.get("/report", checklistController.getReport); // Download Report page; non-admins: own data only
 
 // Main list — triggers lazy task generation
 router.get("/", checklistController.getEntries);

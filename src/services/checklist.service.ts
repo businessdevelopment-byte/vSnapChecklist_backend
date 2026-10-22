@@ -10,6 +10,7 @@ import type {
   TransferredInQueryInput,
   LeaveLogsQueryInput,
 } from "../schemas/checklist.schemas";
+import { REPORT_MAX_ROWS, tooManyRowsError, type ReportQueryInput } from "../schemas/report.schemas";
 
 // ─────────────────────────────────────────
 // Working-day helpers
@@ -75,6 +76,20 @@ function ownedByEffective(userId: number, now: Date): Prisma.ChecklistEntryWhere
       { transferredToId: userId, transferValidUntil: { gte: now } },
     ],
   };
+}
+
+type ChecklistReportStatus = "ADMIN_DONE" | "LEAVE" | "COMPLETED" | "OVERDUE" | "PENDING";
+
+/** Same precedence as the Checklist page's own status badge (MainChecklist.tsx getStatus). */
+function checklistReportStatus(
+  e: { adminDone: boolean; leaveStatus: boolean; actualDate: Date | null; taskStartDate: Date },
+  today: Date
+): ChecklistReportStatus {
+  if (e.adminDone) return "ADMIN_DONE";
+  if (e.leaveStatus) return "LEAVE";
+  if (e.actualDate) return "COMPLETED";
+  if (e.taskStartDate < today) return "OVERDUE";
+  return "PENDING";
 }
 
 /** True if the date is a working day (respects skipSundays setting + holidays) */
@@ -951,6 +966,124 @@ export const checklistService = {
       .sort((a, b) => b.progress - a.progress || a.username.localeCompare(b.username));
   },
 
+  /**
+   * Every checklist entry dated in [startDate, endDate] plus a per-person
+   * summary, for the Download Report page. The summary follows
+   * getStaffStats()'s definitions exactly — leave excluded from the total,
+   * admin-done counts as completed, on-time needs a real submission, and a
+   * task on an active loan is credited to the transferee — so the file
+   * agrees with the Dashboard's staff table for the same range.
+   */
+  async getReport(query: ReportQueryInput, requesterId: number, requesterRole: string) {
+    await this.reconcileExpiredTransfers();
+
+    const today = toUtcDay(new Date());
+    const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
+
+    // The same lazy generation the Checklist page's own read runs, so recent
+    // pending/overdue days exist even if nobody has opened that page today.
+    if (userId) await this.materializeTasks(userId, today);
+    else await this.materializeAllActive(today);
+
+    const start = new Date(query.startDate);
+    const requestedEnd = new Date(query.endDate);
+    // Real entries only exist up to today — later days are projections (see
+    // previewUpcoming), apart from the odd row a leave/transfer pre-created,
+    // so counting those would make a future range look randomly partial.
+    // Also the loan as-of day, matching getStaffStats.
+    const end = requestedEnd < today ? requestedEnd : today;
+    if (start > end) return { rows: [], summary: [], countedUntil: dateKey(end) };
+
+    const where: Prisma.ChecklistEntryWhereInput = {
+      taskStartDate: { gte: start, lte: end },
+      ...(query.departmentId ? { departmentId: query.departmentId } : {}),
+      // Widened to anything loaned to them as well — narrowed to the
+      // effective owner below, once each row's loan state is known.
+      ...(userId ? { OR: [{ assignedUserId: userId }, { transferredToId: userId }] } : {}),
+    };
+
+    const count = await prisma.checklistEntry.count({ where });
+    if (count > REPORT_MAX_ROWS) throw tooManyRowsError("checklist", count);
+
+    const entries = await prisma.checklistEntry.findMany({
+      where,
+      orderBy: [{ taskStartDate: "asc" }, { assignedUserId: "asc" }, { id: "asc" }],
+      select: {
+        taskCode: true,
+        givenBy: true,
+        description: true,
+        taskStartDate: true,
+        frequency: true,
+        actualDate: true,
+        delayDays: true,
+        completionStatus: true,
+        remarks: true,
+        uploadedImageUrl: true,
+        adminDone: true,
+        leaveStatus: true,
+        transferValidUntil: true,
+        assignedUser: { select: { id: true, username: true } },
+        transferredTo: { select: { id: true, username: true } },
+        department: { select: { name: true } },
+      },
+    });
+
+    const owned = entries
+      .map((e) => {
+        const onLoanTo =
+          e.transferredTo && e.transferValidUntil && e.transferValidUntil >= end ? e.transferredTo : null;
+        return { e, onLoanTo, owner: onLoanTo ?? e.assignedUser };
+      })
+      .filter(({ owner }) => !userId || owner.id === userId);
+
+    const tallies = new Map<
+      number,
+      { userId: number; username: string; total: number; completed: number; onTime: number; overdue: number; leave: number }
+    >();
+    for (const { e, owner } of owned) {
+      const t = tallies.get(owner.id) ?? {
+        userId: owner.id, username: owner.username, total: 0, completed: 0, onTime: 0, overdue: 0, leave: 0,
+      };
+      if (e.leaveStatus) {
+        t.leave++;
+      } else {
+        const completed = e.actualDate != null || e.adminDone;
+        t.total++;
+        if (completed) t.completed++;
+        if (e.actualDate != null && (e.delayDays == null || e.delayDays <= 0)) t.onTime++;
+        if (!completed && e.taskStartDate < today) t.overdue++;
+      }
+      tallies.set(owner.id, t);
+    }
+
+    const rows = owned.map(({ e, onLoanTo }) => ({
+      taskDate: dateKey(e.taskStartDate),
+      taskCode: e.taskCode,
+      department: e.department.name,
+      givenBy: e.givenBy,
+      assignedTo: e.assignedUser.username,
+      transferredTo: onLoanTo?.username ?? null,
+      description: e.description,
+      frequency: e.frequency,
+      status: checklistReportStatus(e, today),
+      completedOn: e.actualDate ? dateKey(e.actualDate) : null,
+      delayDays: e.delayDays,
+      completionStatus: e.completionStatus,
+      remarks: e.remarks,
+      attachmentUrl: e.uploadedImageUrl,
+    }));
+
+    const summary = [...tallies.values()]
+      .map((t) => ({
+        ...t,
+        pending: t.total - t.completed,
+        completionRate: t.total > 0 ? Math.round((t.completed / t.total) * 100) : 0,
+      }))
+      .sort((a, b) => a.username.localeCompare(b.username));
+
+    return { rows, summary, countedUntil: dateKey(end) };
+  },
+
   async getMonthlyStats(year: number, userId?: number, departmentId?: number) {
     const today = new Date();
     today.setUTCHours(23, 59, 59, 999);
@@ -1021,8 +1154,10 @@ export const checklistService = {
     return prisma.checklistEntry.update({
       where: { id: entryId },
       data: {
-        actualDate: today,
-        delayDays,
+        // Re-submitting a completed task (e.g. replacing its image from the
+        // Completed tab) keeps the day it was really done — resetting it to
+        // today used to turn an on-time task into a late one.
+        ...(entry.actualDate ? {} : { actualDate: today, delayDays }),
         completionStatus: input.completionStatus,
         remarks: input.remarks,
         uploadedImageUrl: input.uploadedImageUrl,

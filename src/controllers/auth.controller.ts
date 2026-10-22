@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { authService } from "../services/auth.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
 import { loginSchema, registerSchema } from "../schemas/auth.schemas";
-import { REFRESH_COOKIE_OPTS, ACCESS_COOKIE_OPTS, clearAuthCookies } from "../utils/authCookies";
+import { setAuthCookies, clearAuthCookies } from "../utils/authCookies";
 
 export const authController = {
   async login(req: Request, res: Response): Promise<void> {
@@ -15,8 +15,7 @@ export const authController = {
       const userAgent = req.headers["user-agent"];
 
       const { refreshToken, ...result } = await authService.login(input, ip, userAgent);
-      res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTS);
-      res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTS);
+      setAuthCookies(res, refreshToken, result.accessToken);
       sendSuccess(res, result, "Login successful");
     } catch (err: unknown) {
       const error = err as { status?: number; message?: string };
@@ -33,8 +32,7 @@ export const authController = {
       const userAgent = req.headers["user-agent"];
 
       const { refreshToken, ...result } = await authService.register(input, ip, userAgent);
-      res.cookie("refreshToken", refreshToken, REFRESH_COOKIE_OPTS);
-      res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTS);
+      setAuthCookies(res, refreshToken, result.accessToken);
       sendSuccess(res, result, "Account created successfully", 201);
     } catch (err: unknown) {
       const error = err as { status?: number; message?: string };
@@ -55,8 +53,7 @@ export const authController = {
       const userAgent = req.headers["user-agent"];
 
       const { refreshToken: newRefreshToken, ...result } = await authService.refreshAccessToken(refreshToken, ip, userAgent);
-      res.cookie("refreshToken", newRefreshToken, REFRESH_COOKIE_OPTS);
-      res.cookie("accessToken", result.accessToken, ACCESS_COOKIE_OPTS);
+      setAuthCookies(res, newRefreshToken, result.accessToken);
       sendSuccess(res, result, "Token refreshed successfully");
     } catch (err: unknown) {
       const error = err as { status?: number; message?: string };
