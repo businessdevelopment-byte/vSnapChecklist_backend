@@ -40,10 +40,11 @@ function serverDayKey(d: Date): string {
  * filters and search. (The counts used to ignore every filter but the user.)
  */
 function delegationListWhere(
-  query: DelegationCountsQueryInput & { status?: DelegationQueryInput["status"] },
+  query: DelegationCountsQueryInput & { status?: DelegationQueryInput["status"]; due?: DelegationQueryInput["due"] },
   userId: number | undefined
 ): Prisma.DelegationTaskWhereInput {
   const where: Prisma.DelegationTaskWhereInput = { isDeleted: false };
+  const and: Prisma.DelegationTaskWhereInput[] = [];
   if (userId) where.assignedUserId = userId;
   if (query.departmentId) where.departmentId = query.departmentId;
   // "Planned" only ever means "extended" (see submit()'s EXTEND_DATE path)
@@ -67,17 +68,53 @@ function delegationListWhere(
   if (query.search) {
     // The assignee's name too — it's the table's Name column, and the
     // Checklist and Quick Task searches already match it.
-    where.AND = [
-      {
-        OR: [
-          { description: { contains: query.search, mode: "insensitive" } },
-          { taskCode: { contains: query.search, mode: "insensitive" } },
-          { assignedUser: { username: { contains: query.search, mode: "insensitive" } } },
-        ],
-      },
-    ];
+    and.push({
+      OR: [
+        { description: { contains: query.search, mode: "insensitive" } },
+        { taskCode: { contains: query.search, mode: "insensitive" } },
+        { assignedUser: { username: { contains: query.search, mode: "insensitive" } } },
+      ],
+    });
   }
+  if (query.due) {
+    const bounds = dayBounds(query);
+    and.push(query.due === "today" ? dueWithin(bounds) : dueOutside(bounds));
+  }
+  if (and.length > 0) where.AND = and;
   return where;
+}
+
+/** The day "today" means: the page's own local day if it sent one, else the server's. */
+function dayBounds(query: { dayStart?: string; dayEnd?: string }): { start: Date; end: Date } {
+  if (query.dayStart && query.dayEnd) return { start: new Date(query.dayStart), end: new Date(query.dayEnd) };
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return { start, end: new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1) };
+}
+
+// Due date = taskEndDate once a task has been extended, else its start date —
+// the Delegation table's "Due Date" column.
+function dueWithin({ start, end }: { start: Date; end: Date }): Prisma.DelegationTaskWhereInput {
+  return {
+    OR: [
+      { taskEndDate: { gte: start, lt: end } },
+      { taskEndDate: null, taskStartDate: { gte: start, lt: end } },
+    ],
+  };
+}
+
+// Spelled out instead of NOT(dueWithin): in SQL, NOT over a comparison with a
+// NULL taskEndDate is unknown, not true — that dropped every never-extended
+// task from "not today".
+function dueOutside({ start, end }: { start: Date; end: Date }): Prisma.DelegationTaskWhereInput {
+  return {
+    OR: [
+      { taskEndDate: { lt: start } },
+      { taskEndDate: { gte: end } },
+      { taskEndDate: null, taskStartDate: { lt: start } },
+      { taskEndDate: null, taskStartDate: { gte: end } },
+    ],
+  };
 }
 
 export const delegationService = {
@@ -801,9 +838,18 @@ export const delegationService = {
       _count: { status: true },
     });
 
-    return counts.reduce(
+    const byStatus = counts.reduce(
       (acc, c) => ({ ...acc, [c.status]: c._count.status }),
       { PENDING: 0, PLANNED: 0, VERIFY_PENDING: 0, DONE: 0 } as Record<string, number>
     );
+    if (!query.withDue) return byStatus;
+
+    // The Delegation page's Pending (due today) and Upcoming (due any other
+    // day) tabs — same WHERE as those two lists, so the badges match them.
+    const [today, upcoming] = await Promise.all([
+      prisma.delegationTask.count({ where: delegationListWhere({ ...query, status: "PENDING", due: "today" }, effectiveUserId) }),
+      prisma.delegationTask.count({ where: delegationListWhere({ ...query, status: "PENDING", due: "not_today" }, effectiveUserId) }),
+    ]);
+    return { ...byStatus, TODAY: today, UPCOMING: upcoming };
   },
 };

@@ -76,10 +76,21 @@ export const delegationQuerySchema = z.object({
   endDate: z.string().date().optional(),
   search: searchParam,
   nameFilter: z.string().optional(),
+  // Splits pending work by its due date (taskEndDate ?? taskStartDate):
+  // "today" = due inside [dayStart, dayEnd), "not_today" = due on any other
+  // day. The page sends its own local day so "today" matches the Due Date it
+  // shows; without it the server's local day is used.
+  due: z.enum(["today", "not_today"]).optional(),
+  dayStart: z.string().datetime().optional(),
+  dayEnd: z.string().datetime().optional(),
 });
 
-// The list's filters minus paging and status — GET /delegation/status-counts.
-export const delegationCountsQuerySchema = delegationQuerySchema.omit({ page: true, limit: true, status: true });
+// The list's filters minus paging, status and due — GET /delegation/status-counts.
+// withDue=1 adds TODAY / UPCOMING (pending due today / any other day); off by
+// default so callers that sum every key (Dashboard) keep their total.
+export const delegationCountsQuerySchema = delegationQuerySchema
+  .omit({ page: true, limit: true, status: true, due: true })
+  .extend({ withDue: z.literal("1").optional() });
 
 export const delegationHistoryQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
