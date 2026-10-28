@@ -7,6 +7,7 @@ import type {
   CreateDelegationInput,
   SubmitDelegationInput,
   DelegationQueryInput,
+  DelegationCountsQueryInput,
   DelegationHistoryQueryInput,
   DelegationMisQueryInput,
   ImportDelegationsInput,
@@ -33,39 +34,58 @@ function serverDayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/**
+ * The Delegation list's WHERE — shared by getAll() and getStatusCounts(), so
+ * a tab's badge always counts exactly the rows that tab lists under the same
+ * filters and search. (The counts used to ignore every filter but the user.)
+ */
+function delegationListWhere(
+  query: DelegationCountsQueryInput & { status?: DelegationQueryInput["status"] },
+  userId: number | undefined
+): Prisma.DelegationTaskWhereInput {
+  const where: Prisma.DelegationTaskWhereInput = { isDeleted: false };
+  if (userId) where.assignedUserId = userId;
+  if (query.departmentId) where.departmentId = query.departmentId;
+  // "Planned" only ever means "extended" (see submit()'s EXTEND_DATE path)
+  // — the Delegation page shows it merged into "Pending", tagged, so the
+  // list query needs to widen to match.
+  if (query.status === "PENDING") {
+    where.status = { in: ["PENDING", "PLANNED"] };
+  } else if (query.status) {
+    where.status = query.status;
+  }
+  if (query.frequency) where.frequency = query.frequency;
+  if (query.nameFilter) {
+    where.assignedUser = { username: { equals: query.nameFilter, mode: "insensitive" } };
+  }
+  if (query.startDate || query.endDate) {
+    where.taskStartDate = {
+      ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+      ...(query.endDate ? { lte: endOfDay(query.endDate) } : {}),
+    };
+  }
+  if (query.search) {
+    // The assignee's name too — it's the table's Name column, and the
+    // Checklist and Quick Task searches already match it.
+    where.AND = [
+      {
+        OR: [
+          { description: { contains: query.search, mode: "insensitive" } },
+          { taskCode: { contains: query.search, mode: "insensitive" } },
+          { assignedUser: { username: { contains: query.search, mode: "insensitive" } } },
+        ],
+      },
+    ];
+  }
+  return where;
+}
+
 export const delegationService = {
   async getAll(query: DelegationQueryInput, requesterId: number, requesterRole: string) {
     const { skip, take, page, limit } = getPaginationParams(query);
 
     const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
-
-    const where: Prisma.DelegationTaskWhereInput = { isDeleted: false };
-    if (userId) where.assignedUserId = userId;
-    if (query.departmentId) where.departmentId = query.departmentId;
-    // "Planned" only ever means "extended" (see submit()'s EXTEND_DATE path)
-    // — the Delegation page shows it merged into "Pending", tagged, so the
-    // list query needs to widen to match.
-    if (query.status === "PENDING") {
-      where.status = { in: ["PENDING", "PLANNED"] };
-    } else if (query.status) {
-      where.status = query.status;
-    }
-    if (query.frequency) where.frequency = query.frequency;
-    if (query.nameFilter) {
-      where.assignedUser = { username: { equals: query.nameFilter, mode: "insensitive" } };
-    }
-    if (query.startDate || query.endDate) {
-      where.taskStartDate = {
-        ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
-        ...(query.endDate ? { lte: endOfDay(query.endDate) } : {}),
-      };
-    }
-    if (query.search) {
-      where.OR = [
-        { description: { contains: query.search, mode: "insensitive" } },
-        { taskCode: { contains: query.search, mode: "insensitive" } },
-      ];
-    }
+    const where = delegationListWhere(query, userId);
 
     const [tasks, total] = await Promise.all([
       prisma.delegationTask.findMany({
@@ -461,6 +481,7 @@ export const delegationService = {
       where.OR = [
         { taskDescription: { contains: query.search, mode: "insensitive" } },
         { delegationTask: { taskCode: { contains: query.search, mode: "insensitive" } } },
+        { submittedBy: { username: { contains: query.search, mode: "insensitive" } } },
       ];
     }
 
@@ -768,10 +789,11 @@ export const delegationService = {
     return { rows, summary };
   },
 
-  async getStatusCounts(userId: number | undefined, requesterRole: string, requesterId: number) {
-    const effectiveUserId = requesterRole === "ADMIN" ? userId : requesterId;
-    const where: Prisma.DelegationTaskWhereInput = { isDeleted: false };
-    if (effectiveUserId) where.assignedUserId = effectiveUserId;
+  // Same filters as the list (status excepted — that's what it groups by), so
+  // each status badge equals that tab's list total. No filters = whole scope.
+  async getStatusCounts(query: DelegationCountsQueryInput, requesterRole: string, requesterId: number) {
+    const effectiveUserId = requesterRole === "ADMIN" ? query.userId : requesterId;
+    const where = delegationListWhere(query, effectiveUserId);
 
     const counts = await prisma.delegationTask.groupBy({
       by: ["status"],

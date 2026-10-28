@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../config/database";
 import type { CreateUserInput, ImportUsersInput, UpdateUserDeptsInput } from "../schemas/user.schemas";
 import { findUserByUsername, normalizeUsername } from "../utils/username";
+import { invalidateMaterializeCache } from "./checklist.service";
 
 const USER_SELECT = {
   id: true,
@@ -67,7 +68,11 @@ export const userService = {
   async updateStatus(id: number, status: "ACTIVE" | "INACTIVE") {
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
-    return flatten(await prisma.user.update({ where: { id }, data: { status }, select: USER_SELECT }));
+    const updated = await prisma.user.update({ where: { id }, data: { status }, select: USER_SELECT });
+    // The all-users task pass only covers ACTIVE users — drop the cached one
+    // so a re-activated user's tasks show up on the next read, not a minute later.
+    invalidateMaterializeCache();
+    return flatten(updated);
   },
 
   async updateMe(id: number, data: { email?: string | null; departmentId?: number | null }) {

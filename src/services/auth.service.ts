@@ -125,13 +125,9 @@ export const authService = {
     return { accessToken, refreshToken: rawRefreshToken, user: safeUser };
   },
 
-  async refreshAccessToken(rawToken: string, ipAddress?: string, userAgent?: string) {
-    const tokenHash = hashRefreshToken(rawToken);
-
-    const refreshTokenRow = await prisma.refreshToken.findUnique({
-      where: { tokenHash },
-      include: { user: { include: { department: { select: { id: true, name: true } } } } },
-    });
+  // rawTokens: every refreshToken cookie the browser sent (see readCookieValues).
+  async refreshAccessToken(rawTokens: string[], ipAddress?: string, userAgent?: string) {
+    const refreshTokenRow = await this.findPresentedToken(rawTokens);
 
     if (!refreshTokenRow) {
       throw Object.assign(new Error("Invalid refresh token"), { status: 401 });
@@ -171,6 +167,19 @@ export const authService = {
     }
 
     return this.rotateFrom(refreshTokenRow, ipAddress, userAgent);
+  },
+
+  // Of the presented tokens, the one that is ours — preferring a live one, so
+  // a stale copy sent ahead of it can't trip reuse detection and revoke the
+  // real session. Values that aren't ours (another vsnapu.com site's cookie)
+  // simply match no row.
+  async findPresentedToken(rawTokens: string[]): Promise<RefreshTokenWithUser | null> {
+    if (rawTokens.length === 0) return null;
+    const rows = await prisma.refreshToken.findMany({
+      where: { tokenHash: { in: rawTokens.map(hashRefreshToken) } },
+      ...refreshTokenWithUserArgs,
+    });
+    return rows.find((row) => !row.revokedAt) ?? rows[0] ?? null;
   },
 
   // Follows replacedByTokenId pointers to the current tip of a rotation
@@ -227,22 +236,22 @@ export const authService = {
     return { accessToken, refreshToken: newRawRefreshToken, user: safeUser };
   },
 
-  async logout(rawToken?: string) {
-    if (!rawToken) {
+  async logout(rawTokens: string[]) {
+    if (rawTokens.length === 0) {
       return;
     }
 
-    const tokenHash = hashRefreshToken(rawToken);
-    const refreshTokenRow = await prisma.refreshToken.findUnique({
-      where: { tokenHash },
+    const rows = await prisma.refreshToken.findMany({
+      where: { tokenHash: { in: rawTokens.map(hashRefreshToken) } },
+      select: { family: true },
     });
 
-    if (!refreshTokenRow) {
+    if (rows.length === 0) {
       return;
     }
 
     await prisma.refreshToken.updateMany({
-      where: { family: refreshTokenRow.family },
+      where: { family: { in: rows.map((row) => row.family) } },
       data: { revokedAt: new Date() },
     });
   },

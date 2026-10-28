@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { prisma } from "../config/database";
 import { verifyToken } from "../utils/jwt";
 import { sendError } from "../utils/apiResponse";
-import { clearAuthCookies } from "../utils/authCookies";
+import { clearAuthCookies, readCookieValues } from "../utils/authCookies";
 
 declare global {
   namespace Express {
@@ -25,24 +25,33 @@ export const authMiddleware = async (
   const authHeader = req.headers.authorization;
   // Browser requests carry the access token as an httpOnly cookie; a Bearer
   // header (non-browser API client) takes precedence if both are present.
-  const token =
+  // There can be several accessToken cookies — see readCookieValues.
+  const candidates =
     authHeader && authHeader.startsWith("Bearer ")
-      ? authHeader.split(" ")[1]
-      : req.cookies?.accessToken;
+      ? [authHeader.split(" ")[1]]
+      : readCookieValues(req, "accessToken");
 
-  if (!token) {
-    sendError(res, "Unauthorized — missing token", 401);
+  if (candidates.length === 0) {
+    sendError(res, "Unauthorized — missing token", 401, { code: "MISSING_TOKEN" });
     return;
   }
 
-  let payload: ReturnType<typeof verifyToken>;
-  try {
-    payload = verifyToken(token);
-  } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
+  let payload: ReturnType<typeof verifyToken> | undefined;
+  let sawExpired = false;
+  for (const token of candidates) {
+    try {
+      payload = verifyToken(token);
+      break;
+    } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) sawExpired = true;
+    }
+  }
+
+  if (!payload) {
+    if (sawExpired) {
       sendError(res, "Access token expired", 401, { code: "TOKEN_EXPIRED" });
     } else {
-      sendError(res, "Unauthorized — invalid token", 401);
+      sendError(res, "Unauthorized — invalid token", 401, { code: "INVALID_TOKEN" });
     }
     return;
   }

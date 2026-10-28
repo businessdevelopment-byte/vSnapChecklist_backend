@@ -3,7 +3,7 @@ import type { Request } from "express";
 import { authService } from "../services/auth.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
 import { loginSchema, registerSchema } from "../schemas/auth.schemas";
-import { setAuthCookies, clearAuthCookies } from "../utils/authCookies";
+import { setAuthCookies, clearAuthCookies, readCookieValues } from "../utils/authCookies";
 
 export const authController = {
   async login(req: Request, res: Response): Promise<void> {
@@ -42,8 +42,8 @@ export const authController = {
 
   async refresh(req: Request, res: Response): Promise<void> {
     try {
-      const refreshToken = req.cookies?.refreshToken;
-      if (!refreshToken) {
+      const refreshTokens = readCookieValues(req, "refreshToken");
+      if (refreshTokens.length === 0) {
         return sendError(res, "Refresh token missing", 401);
       }
 
@@ -52,7 +52,7 @@ export const authController = {
         ?? undefined;
       const userAgent = req.headers["user-agent"];
 
-      const { refreshToken: newRefreshToken, ...result } = await authService.refreshAccessToken(refreshToken, ip, userAgent);
+      const { refreshToken: newRefreshToken, ...result } = await authService.refreshAccessToken(refreshTokens, ip, userAgent);
       setAuthCookies(res, newRefreshToken, result.accessToken);
       sendSuccess(res, result, "Token refreshed successfully");
     } catch (err: unknown) {
@@ -66,8 +66,7 @@ export const authController = {
 
   async logout(req: Request, res: Response): Promise<void> {
     try {
-      const refreshToken = req.cookies?.refreshToken;
-      await authService.logout(refreshToken);
+      await authService.logout(readCookieValues(req, "refreshToken"));
       clearAuthCookies(res);
       sendSuccess(res, null, "Logged out successfully");
     } catch (err: unknown) {

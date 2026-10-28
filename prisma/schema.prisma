@@ -73,6 +73,27 @@ model SectionPermission {
   @@map("section_permissions")
 }
 
+// A section granted to everyone in a department. A user's effective access is
+// their own grants + their departments' grants + the defaults below.
+model DepartmentSectionPermission {
+  departmentId Int
+  sectionKey   String
+  createdAt    DateTime   @default(now())
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@id([departmentId, sectionKey])
+  @@map("department_section_permissions")
+}
+
+// A section every staff user gets automatically (Settings → Permissions →
+// Default Access). Admins see everything regardless.
+model DefaultSectionPermission {
+  sectionKey String   @id
+  createdAt  DateTime @default(now())
+
+  @@map("default_section_permissions")
+}
+
 model RefreshToken {
   id                Int           @id @default(autoincrement())
   userId            Int
@@ -103,6 +124,7 @@ model Department {
   taskTemplates    TaskTemplate[]
   userLinks        UserDepartment[]
   users            User[]
+  sectionPermissions DepartmentSectionPermission[]
 
   @@map("departments")
 }

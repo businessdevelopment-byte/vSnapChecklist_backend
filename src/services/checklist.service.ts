@@ -6,6 +6,7 @@ import type {
   SubmitChecklistInput,
   LeaveInput,
   ChecklistStatsQueryInput,
+  ChecklistTabCountsQueryInput,
   PreviewQueryInput,
   TransferredInQueryInput,
   LeaveLogsQueryInput,
@@ -76,6 +77,88 @@ function ownedByEffective(userId: number, now: Date): Prisma.ChecklistEntryWhere
       { transferredToId: userId, transferValidUntil: { gte: now } },
     ],
   };
+}
+
+/**
+ * The Checklist list's WHERE — shared by getEntries() and getTabCounts(), so
+ * each tab's badge counts exactly the rows that tab lists.
+ */
+function checklistEntriesWhere(
+  query: ChecklistTabCountsQueryInput & { status?: ChecklistQueryInput["status"] },
+  userId: number | undefined,
+  targetDate: Date,
+  now: Date
+): Prisma.ChecklistEntryWhereInput {
+  const where: Prisma.ChecklistEntryWhereInput = {};
+
+  if (userId) {
+    // Hides entries currently on loan (temporary transfer) to someone else
+    // — only meaningful for a SPECIFIC user's own list (they surface on the
+    // Delegation page's "Transferred Tasks" section for the receiving user
+    // instead, via getTransferredIn). The admin's "All users" aggregate view
+    // must NOT drop these — they're still real, active tasks system-wide,
+    // and getStats/getCalendarSummary already count them in that view, so
+    // hiding them here just breaks the two views' totals against each other.
+    Object.assign(where, assignedExcludingOnLoan(userId, now));
+  }
+  if (query.departmentId) where.departmentId = query.departmentId;
+
+  if (query.startDate || query.endDate) {
+    where.taskStartDate = {
+      ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+      ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+    };
+  } else {
+    where.taskStartDate = { lte: targetDate };
+  }
+
+  // Each tab lists exactly the rows whose badge reads that status — the row
+  // badge's precedence is Admin Done > Leave > Completed (MainChecklist
+  // getStatus). markLeave() sets actualDate too, so "actualDate not null"
+  // alone listed every leave day under Completed, tagged "Leave".
+  if (query.status === "completed") {
+    where.actualDate = { not: null };
+    where.leaveStatus = false;
+    where.adminDone = false;
+  } else if (query.status === "pending") {
+    where.actualDate = null;
+    where.adminDone = false;
+    where.leaveStatus = false;
+  } else if (query.status === "overdue") {
+    where.actualDate = null;
+    where.adminDone = false;
+    where.leaveStatus = false;
+    // Overdue always means "before today," full stop — it ignores the
+    // generic date-range block above entirely (both bounds, not just the
+    // upper one), because that range describes a different page state
+    // (which day's snapshot the other tabs are showing) that has nothing
+    // to do with what's overdue. Previously this carried over the range's
+    // lower bound if present, which silently made "Overdue" always return
+    // 0 under the page's own default filter (startDate=endDate=today
+    // merges to an impossible {gte: today, lt: today}), correct only by
+    // coincidence when something else had cleared startDate first.
+    where.taskStartDate = { lt: targetDate };
+  } else if (query.status === "leave") {
+    where.leaveStatus = true;
+    where.adminDone = false;
+  } else if (query.status === "admin_done") {
+    where.adminDone = true;
+  }
+
+  if (query.search) {
+    // Under AND, not where.OR — assignedExcludingOnLoan() above already set
+    // where.OR, and overwriting it brought on-loan tasks back on every search.
+    where.AND = [
+      {
+        OR: [
+          { description: { contains: query.search, mode: "insensitive" } },
+          { taskCode: { contains: query.search, mode: "insensitive" } },
+          { assignedUser: { username: { contains: query.search, mode: "insensitive" } } },
+        ],
+      },
+    ];
+  }
+  return where;
 }
 
 type ChecklistReportStatus = "ADMIN_DONE" | "LEAVE" | "COMPLETED" | "OVERDUE" | "PENDING";
@@ -542,14 +625,21 @@ export const checklistService = {
     return { users: activeUsers.length, created: totalCreated };
   },
 
-  async getEntries(query: ChecklistQueryInput, requesterId: number, requesterRole: string) {
+  /**
+   * Runs before any Checklist list read (getEntries, getTabCounts): clears
+   * expired loans and generates the entries due so far, then says which user
+   * the read is scoped to. Both reads doing this keeps a badge from counting
+   * before the day's tasks exist while the list beside it shows them.
+   */
+  async prepareListRead(
+    query: { userId?: number; date?: string },
+    requesterId: number,
+    requesterRole: string
+  ) {
     await this.reconcileExpiredTransfers();
-
-    const { skip, take, page, limit } = getPaginationParams(query);
 
     const targetDate = toUtcDay(query.date ? new Date(query.date) : new Date());
     const now = toUtcDay(new Date());
-
     const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
 
     if (userId) {
@@ -557,64 +647,14 @@ export const checklistService = {
     } else if (requesterRole === "ADMIN" && !query.userId) {
       await this.materializeAllActive(targetDate);
     }
+    return { userId, targetDate, now };
+  },
 
-    const where: Prisma.ChecklistEntryWhereInput = {};
-
-    if (userId) {
-      // Hides entries currently on loan (temporary transfer) to someone else
-      // — only meaningful for a SPECIFIC user's own list (they surface on the
-      // Delegation page's "Transferred Tasks" section for the receiving user
-      // instead, via getTransferredIn below). The admin's "All users"
-      // aggregate view must NOT drop these — they're still real, active
-      // tasks system-wide, and getStats/getCalendarSummary already count
-      // them in that view, so hiding them here just breaks the two views'
-      // totals against each other.
-      Object.assign(where, assignedExcludingOnLoan(userId, now));
-    }
-    if (query.departmentId) where.departmentId = query.departmentId;
-
-    if (query.startDate || query.endDate) {
-      where.taskStartDate = {
-        ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
-        ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
-      };
-    } else {
-      where.taskStartDate = { lte: targetDate };
-    }
-
-    if (query.status === "completed") {
-      where.actualDate = { not: null };
-    } else if (query.status === "pending") {
-      where.actualDate = null;
-      where.adminDone = false;
-      where.leaveStatus = false;
-    } else if (query.status === "overdue") {
-      where.actualDate = null;
-      where.adminDone = false;
-      where.leaveStatus = false;
-      // Overdue always means "before today," full stop — it ignores the
-      // generic date-range block above entirely (both bounds, not just the
-      // upper one), because that range describes a different page state
-      // (which day's snapshot the other tabs are showing) that has nothing
-      // to do with what's overdue. Previously this carried over the range's
-      // lower bound if present, which silently made "Overdue" always return
-      // 0 under the page's own default filter (startDate=endDate=today
-      // merges to an impossible {gte: today, lt: today}), correct only by
-      // coincidence when something else had cleared startDate first.
-      where.taskStartDate = { lt: targetDate };
-    } else if (query.status === "leave") {
-      where.leaveStatus = true;
-    } else if (query.status === "admin_done") {
-      where.adminDone = true;
-    }
-
-    if (query.search) {
-      where.OR = [
-        { description: { contains: query.search, mode: "insensitive" } },
-        { taskCode: { contains: query.search, mode: "insensitive" } },
-        { assignedUser: { username: { contains: query.search, mode: "insensitive" } } },
-      ];
-    }
+  async getEntries(query: ChecklistQueryInput, requesterId: number, requesterRole: string) {
+    const { userId, targetDate, now } = await this.prepareListRead(query, requesterId, requesterRole);
+    const { skip, take, page, limit } = getPaginationParams(query);
+    const where = checklistEntriesWhere(query, userId, targetDate, now);
+    const order = query.order ?? "asc";
 
     const [entries, total] = await Promise.all([
       prisma.checklistEntry.findMany({
@@ -623,7 +663,7 @@ export const checklistService = {
         take,
         // id last: without a unique tiebreaker, rows sharing a date and user
         // can swap between page requests and show twice or not at all.
-        orderBy: [{ taskStartDate: "asc" }, { assignedUserId: "asc" }, { id: "asc" }],
+        orderBy: [{ taskStartDate: order }, { assignedUserId: "asc" }, { id: "asc" }],
         include: {
           assignedUser: { select: { id: true, username: true } },
           department: { select: { id: true, name: true } },
@@ -634,6 +674,27 @@ export const checklistService = {
     ]);
 
     return { data: entries, pagination: buildPaginationMeta(total, page, limit) };
+  },
+
+  /**
+   * The Checklist page's tab badges: each one counts exactly what that tab
+   * lists under the same filters and search (same WHERE as getEntries).
+   * getStats counts differently — All without leave, Pending including Admin
+   * Done, no search — and stays as it is for Dashboard and Calendar.
+   */
+  async getTabCounts(query: ChecklistTabCountsQueryInput, requesterId: number, requesterRole: string) {
+    const { userId, targetDate, now } = await this.prepareListRead(query, requesterId, requesterRole);
+    const count = (status?: ChecklistQueryInput["status"]) =>
+      prisma.checklistEntry.count({ where: checklistEntriesWhere({ ...query, status }, userId, targetDate, now) });
+
+    const [all, pending, completed, overdue, leave] = await Promise.all([
+      count(),
+      count("pending"),
+      count("completed"),
+      count("overdue"),
+      count("leave"),
+    ]);
+    return { all, pending, completed, overdue, leave };
   },
 
   /**
