@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { ZodError } from "zod";
 import { delegationService } from "../services/delegation.service";
+import { permissionService, ADMIN_APPROVE_SECTION } from "../services/permission.service";
 import { sendSuccess, sendPaginated, sendError, formatZodRowErrors } from "../utils/apiResponse";
 import {
   createDelegationSchema,
@@ -9,6 +10,7 @@ import {
   adminDoneDelegationSchema,
   reviewSubmissionSchema,
   delegationQuerySchema,
+  delegationCountsQuerySchema,
   delegationHistoryQuerySchema,
   delegationMisQuerySchema,
   importDelegationsSchema,
@@ -32,6 +34,10 @@ export const delegationController = {
       const result = await delegationService.getAll(query, req.user!.userId, req.user!.role);
       sendPaginated(res, result, "Delegation tasks fetched");
     } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, err.issues[0]?.message ?? "Invalid filters", 400);
+        return;
+      }
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch delegation tasks", e.status ?? 500);
     }
@@ -182,8 +188,9 @@ export const delegationController = {
 
   async listSubmissions(req: Request, res: Response): Promise<void> {
     try {
-      if (req.user!.role !== "ADMIN") {
-        sendError(res, "Only admin can view delegation submissions", 403);
+      // Admins, and anyone granted Admin Approve (own, department or default).
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
         return;
       }
       const submissions = await delegationService.listSubmissionsForReview();
@@ -196,8 +203,9 @@ export const delegationController = {
 
   async approveSubmission(req: Request, res: Response): Promise<void> {
     try {
-      if (req.user!.role !== "ADMIN") {
-        sendError(res, "Only admin can approve delegation submissions", 403);
+      // Admins, and anyone granted Admin Approve (own, department or default).
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
         return;
       }
       const result = await delegationService.approveSubmission(Number(req.params.historyId), req.user!.userId);
@@ -210,8 +218,9 @@ export const delegationController = {
 
   async rejectSubmission(req: Request, res: Response): Promise<void> {
     try {
-      if (req.user!.role !== "ADMIN") {
-        sendError(res, "Only admin can reject delegation submissions", 403);
+      // Admins, and anyone granted Admin Approve (own, department or default).
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
         return;
       }
       const { reviewNote } = reviewSubmissionSchema.parse(req.body);
@@ -229,10 +238,14 @@ export const delegationController = {
 
   async getStatusCounts(req: Request, res: Response): Promise<void> {
     try {
-      const userId = req.query.userId ? Number(req.query.userId) : undefined;
-      const counts = await delegationService.getStatusCounts(userId, req.user!.role, req.user!.userId);
+      const query = delegationCountsQuerySchema.parse(req.query);
+      const counts = await delegationService.getStatusCounts(query, req.user!.role, req.user!.userId);
       sendSuccess(res, counts, "Status counts fetched");
     } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, err.issues[0]?.message ?? "Invalid filters", 400);
+        return;
+      }
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch counts", e.status ?? 500);
     }

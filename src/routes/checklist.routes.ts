@@ -8,6 +8,7 @@ router.use(authMiddleware);
 
 // Stats & aggregates
 router.get("/stats", checklistController.getStats);
+router.get("/tab-counts", checklistController.getTabCounts); // Checklist page badges — same WHERE as the list
 router.get("/staff-stats", checklistController.getStaffStats); // non-admins: own row only
 router.get("/monthly-stats", checklistController.getMonthlyStats); // non-admins: own data only
 router.get("/calendar-summary", checklistController.getCalendarSummary);

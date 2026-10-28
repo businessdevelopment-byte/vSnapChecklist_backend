@@ -1,4 +1,4 @@
-import type { Response, CookieOptions } from "express";
+import type { Request, Response, CookieOptions } from "express";
 import { env } from "../config/env";
 
 // Parses simple "15m" / "1h" / "7d" style durations (the only suffixes this
@@ -73,4 +73,30 @@ export function clearAuthCookies(res: Response): void {
   clearLegacyHostOnlyCookies(res);
   res.clearCookie("refreshToken", CLEAR_COOKIE_OPTS);
   res.clearCookie("accessToken", CLEAR_COOKIE_OPTS);
+}
+
+// Every value the browser sent under this cookie name, in header order. The
+// API shares vsnapu.com with ~30 other sites on the prod IIS server, and any
+// of them can set an "accessToken"/"refreshToken" cookie on .vsnapu.com. The
+// browser sends that one alongside ours — older cookies first — and
+// cookie-parser's req.cookies keeps only the first, so a fresh login was read
+// as the other site's token and 401'd. Callers try each value instead.
+export function readCookieValues(req: Request, name: string): string[] {
+  const header = req.headers.cookie;
+  if (!header) return [];
+
+  const values: string[] = [];
+  for (const pair of header.split(";")) {
+    const eqIdx = pair.indexOf("=");
+    if (eqIdx === -1 || pair.slice(0, eqIdx).trim() !== name) continue;
+    let value = pair.slice(eqIdx + 1).trim();
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+    if (!value) continue;
+    try {
+      values.push(decodeURIComponent(value));
+    } catch {
+      values.push(value);
+    }
+  }
+  return values;
 }

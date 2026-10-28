@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { transferService } from "../services/transfer.service";
+import { permissionService, ADMIN_APPROVE_SECTION } from "../services/permission.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
 import { transferTasksSchema, reviewRequestSchema } from "../schemas/transfer.schemas";
 
@@ -17,8 +18,9 @@ export const transferController = {
 
   async listRequests(req: Request, res: Response): Promise<void> {
     try {
-      if (req.user!.role !== "ADMIN") {
-        sendError(res, "Only admin can view transfer requests", 403);
+      // Admins, and anyone granted Admin Approve (own, department or default).
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
         return;
       }
       const status = req.query.status as "PENDING" | "APPROVED" | "REJECTED" | undefined;
@@ -32,8 +34,9 @@ export const transferController = {
 
   async approveRequest(req: Request, res: Response): Promise<void> {
     try {
-      if (req.user!.role !== "ADMIN") {
-        sendError(res, "Only admin can approve transfer requests", 403);
+      // Admins, and anyone granted Admin Approve (own, department or default).
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
         return;
       }
       const result = await transferService.approveRequest(Number(req.params.id), req.user!.userId);
@@ -46,8 +49,9 @@ export const transferController = {
 
   async rejectRequest(req: Request, res: Response): Promise<void> {
     try {
-      if (req.user!.role !== "ADMIN") {
-        sendError(res, "Only admin can reject transfer requests", 403);
+      // Admins, and anyone granted Admin Approve (own, department or default).
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
         return;
       }
       const { reviewNote } = reviewRequestSchema.parse(req.body);

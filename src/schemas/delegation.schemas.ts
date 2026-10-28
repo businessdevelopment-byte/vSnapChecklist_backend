@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { searchParam } from "./checklist.schemas";
 
 export const createDelegationSchema = z.object({
   taskCode: z.string().min(1).max(50),
@@ -73,9 +74,12 @@ export const delegationQuerySchema = z.object({
   frequency: z.enum(["ONE_TIME", "CRITICAL", "URGENT"]).optional(),
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
-  search: z.string().optional(),
+  search: searchParam,
   nameFilter: z.string().optional(),
 });
+
+// The list's filters minus paging and status — GET /delegation/status-counts.
+export const delegationCountsQuerySchema = delegationQuerySchema.omit({ page: true, limit: true, status: true });
 
 export const delegationHistoryQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -83,7 +87,7 @@ export const delegationHistoryQuerySchema = z.object({
   userId: z.coerce.number().int().positive().optional(),
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
-  search: z.string().optional(),
+  search: searchParam,
 });
 
 export const delegationMisQuerySchema = z.object({
@@ -99,6 +103,7 @@ export const deleteDelegationsSchema = z.object({
 export type CreateDelegationInput = z.infer<typeof createDelegationSchema>;
 export type SubmitDelegationInput = z.infer<typeof submitDelegationSchema>;
 export type DelegationQueryInput = z.infer<typeof delegationQuerySchema>;
+export type DelegationCountsQueryInput = z.infer<typeof delegationCountsQuerySchema>;
 export type DelegationHistoryQueryInput = z.infer<typeof delegationHistoryQuerySchema>;
 export type DelegationMisQueryInput = z.infer<typeof delegationMisQuerySchema>;
 export type ImportDelegationsInput = z.infer<typeof importDelegationsSchema>;

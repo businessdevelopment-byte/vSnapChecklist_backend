@@ -10,6 +10,9 @@ export function checkDateRange(startDate: string, endDate: string, ctx: z.Refine
   }
 }
 
+/** A list's search text: trimmed, and blank means no search ("taranbir " used to match nothing). */
+export const searchParam = z.string().trim().optional().transform((s) => s || undefined);
+
 export const checklistQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(500).default(100),
@@ -19,8 +22,13 @@ export const checklistQuerySchema = z.object({
   userId: z.coerce.number().int().positive().optional(), // admin: filter by user
   departmentId: z.coerce.number().int().positive().optional(),
   status: z.enum(["pending", "completed", "overdue", "leave", "admin_done"]).optional(),
-  search: z.string().optional(),
+  search: searchParam,
+  // The Checklist page shows newest first; other callers keep oldest first.
+  order: z.enum(["asc", "desc"]).optional(),
 });
+
+// The list's filters minus paging, status and order — GET /checklist/tab-counts.
+export const checklistTabCountsQuerySchema = checklistQuerySchema.omit({ page: true, limit: true, status: true, order: true });
 
 export const submitChecklistSchema = z.object({
   completionStatus: z.enum(["YES", "NO", "NOT_REQUIRED", "NOT_APPLICABLE"]),
@@ -72,6 +80,7 @@ export type SubmitChecklistInput = z.infer<typeof submitChecklistSchema>;
 export type AdminDoneInput = z.infer<typeof adminDoneSchema>;
 export type LeaveInput = z.infer<typeof leaveSchema>;
 export type ChecklistStatsQueryInput = z.infer<typeof checklistStatsQuerySchema>;
+export type ChecklistTabCountsQueryInput = z.infer<typeof checklistTabCountsQuerySchema>;
 export type PreviewQueryInput = z.infer<typeof previewQuerySchema>;
 export type TransferredInQueryInput = z.infer<typeof transferredInQuerySchema>;
 export type LeaveLogsQueryInput = z.infer<typeof leaveLogsQuerySchema>;

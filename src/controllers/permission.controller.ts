@@ -1,17 +1,28 @@
 import type { Request, Response } from "express";
 import { sendError, sendSuccess } from "../utils/apiResponse";
 import { permissionService } from "../services/permission.service";
-import { assignSectionPermissionSchema, removeSectionPermissionSchema } from "../schemas/permission.schemas";
+import {
+  assignSectionPermissionSchema,
+  removeSectionPermissionSchema,
+  setUserPermissionsSchema,
+  setDepartmentPermissionsSchema,
+  setDefaultPermissionsSchema,
+} from "../schemas/permission.schemas";
 
 export const permissionController = {
+  // Effective access (own + department + default grants) — what the sidebar
+  // shows. Staff may only read their own; it used to answer for anyone.
   async getUserPermissions(req: Request, res: Response) {
     try {
       const userId = parseInt(req.params.userId as string);
       if (!userId) {
         return sendError(res, "User ID is required", 400);
       }
+      if (req.user!.role !== "ADMIN" && req.user!.userId !== userId) {
+        return sendError(res, "You can only view your own permissions", 403);
+      }
 
-      const permissions = await permissionService.getUserPermissions(userId);
+      const permissions = await permissionService.getEffectivePermissions(userId);
       return sendSuccess(res, permissions, "User permissions fetched successfully");
     } catch (error) {
       console.error("Error fetching user permissions:", error);
@@ -65,16 +76,16 @@ export const permissionController = {
 
   async setUserPermissions(req: Request, res: Response) {
     try {
-      const { userId, sectionKeys } = req.body;
-
-      if (!userId || !Array.isArray(sectionKeys)) {
-        return sendError(res, "Invalid input", 400);
+      const parsed = setUserPermissionsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return sendError(res, "Invalid input", 400, parsed.error.errors);
       }
 
       if (req.user?.role !== "ADMIN") {
         return sendError(res, "Only admins can set permissions", 403);
       }
 
+      const { userId, sectionKeys } = parsed.data;
       const permissions = await permissionService.setUserPermissions(userId, sectionKeys);
       return sendSuccess(res, permissions, "User permissions updated successfully");
     } catch (error: any) {
@@ -97,6 +108,69 @@ export const permissionController = {
     } catch (error) {
       console.error("Error fetching all user permissions:", error);
       return sendError(res, "Failed to fetch user permissions", 500);
+    }
+  },
+
+  async getDepartmentPermissions(req: Request, res: Response) {
+    try {
+      if (req.user?.role !== "ADMIN") {
+        return sendError(res, "Only admins can view department permissions", 403);
+      }
+      const departments = await permissionService.getDepartmentPermissions();
+      return sendSuccess(res, departments, "Department permissions fetched successfully");
+    } catch (error) {
+      console.error("Error fetching department permissions:", error);
+      return sendError(res, "Failed to fetch department permissions", 500);
+    }
+  },
+
+  async setDepartmentPermissions(req: Request, res: Response) {
+    try {
+      const parsed = setDepartmentPermissionsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return sendError(res, "Invalid input", 400, parsed.error.errors);
+      }
+      if (req.user?.role !== "ADMIN") {
+        return sendError(res, "Only admins can set department permissions", 403);
+      }
+      const sections = await permissionService.setDepartmentPermissions(parsed.data.departmentId, parsed.data.sectionKeys);
+      return sendSuccess(res, sections, "Department permissions updated successfully");
+    } catch (error: any) {
+      console.error("Error setting department permissions:", error);
+      if (error.code === "P2025") {
+        return sendError(res, "Department not found", 404);
+      }
+      return sendError(res, "Failed to set department permissions", 500);
+    }
+  },
+
+  async getDefaultPermissions(req: Request, res: Response) {
+    try {
+      if (req.user?.role !== "ADMIN") {
+        return sendError(res, "Only admins can view default permissions", 403);
+      }
+      const sections = await permissionService.getDefaultPermissions();
+      return sendSuccess(res, sections, "Default permissions fetched successfully");
+    } catch (error) {
+      console.error("Error fetching default permissions:", error);
+      return sendError(res, "Failed to fetch default permissions", 500);
+    }
+  },
+
+  async setDefaultPermissions(req: Request, res: Response) {
+    try {
+      const parsed = setDefaultPermissionsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return sendError(res, "Invalid input", 400, parsed.error.errors);
+      }
+      if (req.user?.role !== "ADMIN") {
+        return sendError(res, "Only admins can set default permissions", 403);
+      }
+      const sections = await permissionService.setDefaultPermissions(parsed.data.sectionKeys);
+      return sendSuccess(res, sections, "Default permissions updated successfully");
+    } catch (error) {
+      console.error("Error setting default permissions:", error);
+      return sendError(res, "Failed to set default permissions", 500);
     }
   },
 };

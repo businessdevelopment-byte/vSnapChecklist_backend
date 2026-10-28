@@ -1,6 +1,6 @@
 ---
 name: permissions
-description: Work correctly within the current single-boolean RBAC model across ../frontend/ and , and don't migrate any of Master's three conflicting permission systems without an explicit decision.
+description: Work correctly within the current Role + section-access RBAC model across ../frontend/ and , and don't migrate any of Master's three conflicting permission systems without an explicit decision.
 ---
 
 ## Purpose
@@ -14,7 +14,7 @@ Avoid quietly reintroducing permission complexity (or inconsistency) that hasn't
 
 ## Rules
 
-- Today's actual model, everywhere in `vsnapChecklist`: `Role = "ADMIN" | "USER"` (`../frontend/src/types/global.d.ts`, `backend`'s Prisma `Role` enum). Frontend reads it via `useRBAC()` → `{ user, isAdmin }`. That's it — no granular permissions, no permission constants file.
+- Today's actual model, everywhere in `vsnapChecklist`: `Role = "ADMIN" | "USER"` (`../frontend/src/types/global.d.ts`, `backend`'s Prisma `Role` enum). Frontend reads it via `useRBAC()` → `{ user, isAdmin }`. On top of that, **section access** (since 2026-10-28): a staff user can open a section when it's in their own `SectionPermission` grants, any of their departments' `DepartmentSectionPermission` grants, or the `DefaultSectionPermission` list. Read it with `useRBAC().hasPermission("{system}:{page}")` on the frontend and `permissionService.canAccessSection(req.user, key)` on the backend; it's edited in Settings → Permissions (Users / Departments / Default Access). Only Admin Approve's APIs enforce it — other sections are sidebar-only. Don't add other permission schemes.
 - Backend enforcement is inline per-controller/service (`if (req.user!.role !== "ADMIN")`), not middleware. When adding a new admin-only endpoint in this repo, follow this same inline pattern for consistency (`../.claude/context/BACKEND_API_REFERENCE.md`).
 - **Do not port any of `Master`'s permission systems as-is**: its global `/settings` `accessPages: string[]` model and its separate `/vsnap/settings` `{admin, superadmin, hod, user}` role list are both unreconciled with each other and with the real backend's `Role` enum. Which becomes canonical (if any additional granularity is even needed) is an open decision — see `../docs/migration/DECISIONS.md`. Do not migrate any RBAC-dependent module until it's resolved.
 - Frontend permission checks are UI-only (hide/show) — never treat them as security. Any new admin-only action needs a matching server-side check in this repo.
@@ -22,7 +22,7 @@ Avoid quietly reintroducing permission complexity (or inconsistency) that hasn't
 ## Best Practices
 
 - If a migrated module's source in `Master` implies a need for more granular permissions than ADMIN/USER (e.g. department-scoped access, multi-tier roles like `hod`), surface that explicitly as an open question rather than quietly implementing your own scheme.
-- Reuse the existing `isAdmin` boolean and `NAV`-array-with-`adminOnly?` pattern (from `../frontend/src/features/checklist/settings/components/MainSettings.tsx`) as the reference shape if a similar admin-only nav/section is needed elsewhere.
+- For a page some staff should open, add it to `navigation.ts` (it becomes grantable) and, if its API must be protected, check `canAccessSection` server-side. For a strictly admin-only page, reuse the `isAdmin` boolean and `NAV`-array-with-`adminOnly?` pattern (from `../frontend/src/features/checklist/settings/components/MainSettings.tsx`) as the reference shape if a similar admin-only nav/section is needed elsewhere.
 
 ## Common Mistakes
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { searchParam } from "./checklist.schemas";
 
 // A last date before the start date leaves the template with no day it can
 // ever run on — it would list in Quick Task but never reach the Checklist.
@@ -56,7 +57,7 @@ export const templateQuerySchema = z.object({
   isActive: z.string().transform(v => v === "true" || v === "1").optional(),
   startDate: z.string().date().optional(),
   endDate: z.string().date().optional(),
-  search: z.string().optional(),
+  search: searchParam,
   sortBy: z.enum(["taskCode", "department", "givenBy", "assignedUser", "frequency", "startDate"]).optional(),
   sortDir: z.enum(["asc", "desc"]).optional(),
 });

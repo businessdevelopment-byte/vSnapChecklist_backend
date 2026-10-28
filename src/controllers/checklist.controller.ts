@@ -8,6 +8,7 @@ import {
   adminDoneSchema,
   leaveSchema,
   checklistStatsQuerySchema,
+  checklistTabCountsQuerySchema,
   previewQuerySchema,
   transferredInQuerySchema,
   leaveLogsQuerySchema,
@@ -40,6 +41,10 @@ export const checklistController = {
       );
       sendPaginated(res, result, "Checklist entries fetched");
     } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, err.issues[0]?.message ?? "Invalid filters", 400);
+        return;
+      }
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch checklist", e.status ?? 500);
     }
@@ -87,6 +92,21 @@ export const checklistController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch history", e.status ?? 500);
+    }
+  },
+
+  async getTabCounts(req: Request, res: Response): Promise<void> {
+    try {
+      const query = checklistTabCountsQuerySchema.parse(req.query);
+      const counts = await checklistService.getTabCounts(query, req.user!.userId, req.user!.role);
+      sendSuccess(res, counts, "Tab counts fetched");
+    } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, err.issues[0]?.message ?? "Invalid filters", 400);
+        return;
+      }
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch tab counts", e.status ?? 500);
     }
   },
 
