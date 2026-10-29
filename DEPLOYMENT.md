@@ -73,7 +73,7 @@ self-hosted runner — unrelated to this backend.
 ## Automated deploy (GitHub webhook) — no GitHub Actions, no Cloudflare change
 
 Pushes to `main` auto-deploy via a self-hosted webhook (free; no Actions minutes).
-GitHub webhook (id 704700247, `push` events) created and verified with a ping on 2026-10-29.
+GitHub webhook (id 704700247, `push` events) created 2026-10-29; listener runs the deploy attached and logs its output to `C:\Tools\vsnap-deploy\hook.log`.
 
 **Flow:** GitHub push → `https://botivateapi.vsnapu.com/__hooks__/<token>/deploy`
 → Cloudflare (existing record) → IIS rewrite rule → local listener `127.0.0.1:4055`
