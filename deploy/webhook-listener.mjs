@@ -68,10 +68,25 @@ const server = http.createServer((req, res) => {
     running = true;
     const sha = (payload.head_commit && payload.head_commit.id ? payload.head_commit.id.slice(0, 7) : '?');
     console.log(ts(), 'deploy triggered by', sha);
-    const child = spawn('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', DEPLOY_SCRIPT],
-      { detached: true, stdio: 'ignore' });
-    child.on('exit', (code) => { running = false; console.log(ts(), 'deploy exited', code); });
+    const psExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    // Not detached and output is captured into hook.log: a detached child with
+    // stdio ignored exited 0 instantly under the NSSM service with no trace.
+    const child = spawn(psExe,
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', DEPLOY_SCRIPT],
+      { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const pipeLines = (stream, tag) => {
+      let buf = '';
+      stream.on('data', (d) => {
+        buf += d;
+        const lines = buf.split(/\r?\n/);
+        buf = lines.pop();
+        for (const l of lines) if (l) console.log(ts(), tag, l);
+      });
+      stream.on('end', () => { if (buf) console.log(ts(), tag, buf); });
+    };
+    pipeLines(child.stdout, '[deploy]');
+    pipeLines(child.stderr, '[deploy-err]');
+    child.on('close', (code, signal) => { running = false; console.log(ts(), 'deploy exited', code, signal || ''); });
     child.on('error', (e) => { running = false; console.log(ts(), 'spawn error', e.message); });
 
     res.writeHead(202); return res.end('deploy started');
