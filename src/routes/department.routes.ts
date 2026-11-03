@@ -8,6 +8,8 @@ router.use(authMiddleware);
 
 router.get("/", departmentController.getAll);
 router.post("/", departmentController.create);
+router.post("/import", departmentController.importMany);       // admin: creates the missing ones, skips existing
+router.post("/bulk-delete", departmentController.removeMany);  // admin: deletes unused ones, skips in-use with the reason
 router.patch("/:id", departmentController.update);
 router.delete("/:id", departmentController.remove);
 

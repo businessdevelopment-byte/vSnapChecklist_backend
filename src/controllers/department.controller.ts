@@ -1,12 +1,21 @@
 import { Request, Response } from "express";
 import { departmentService } from "../services/department.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
-import { createDepartmentSchema, updateDepartmentSchema } from "../schemas/department.schemas";
+import {
+  createDepartmentSchema,
+  updateDepartmentSchema,
+  departmentListQuerySchema,
+  importDepartmentsSchema,
+  departmentIdsSchema,
+} from "../schemas/department.schemas";
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export const departmentController = {
-  async getAll(_req: Request, res: Response): Promise<void> {
+  async getAll(req: Request, res: Response): Promise<void> {
     try {
-      const departments = await departmentService.getAll();
+      const { usage } = departmentListQuerySchema.parse(req.query);
+      const departments = await departmentService.getAll(usage === "1");
       sendSuccess(res, departments, "Departments fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -23,6 +32,18 @@ export const departmentController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to create department", e.status ?? 400);
+    }
+  },
+
+  async importMany(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const { rows } = importDepartmentsSchema.parse(req.body);
+      const result = await departmentService.importMany(rows);
+      sendSuccess(res, result, `${plural(result.created.length, "department")} created`);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to import departments", e.status ?? 400);
     }
   },
 
@@ -46,6 +67,18 @@ export const departmentController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to delete department", e.status ?? 400);
+    }
+  },
+
+  async removeMany(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const { ids } = departmentIdsSchema.parse(req.body);
+      const result = await departmentService.removeMany(ids);
+      sendSuccess(res, result, `${plural(result.deleted.length, "department")} deleted`);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to delete departments", e.status ?? 400);
     }
   },
 };
