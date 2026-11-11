@@ -4,6 +4,8 @@ import { buildPaginationMeta } from "../../utils/pagination";
 import { getCurrentWeekBounds, getWeekBounds, toDateOnly } from "../../utils/misWeek";
 import { misCalculators, type MisRowPartial } from "./misCalculators";
 import { checklistService } from "../checklist.service";
+import { delegationService } from "../delegation.service";
+import { buildChecklistDrilldown, type ChecklistDrilldown } from "./misChecklistDrilldown";
 
 const HISTORY_WEEKS_BACK = 8;
 
@@ -181,6 +183,27 @@ export const misService = {
         })
       )
       .sort((a, b) => a.username.localeCompare(b.username));
+  },
+
+  // Checklist & Delegation drill-down for one person and week (MIS doc, Levels 1–3).
+  async getChecklistDrilldown(params: { userId: number; weekStart?: string }): Promise<ChecklistDrilldown> {
+    const week = params.weekStart ? getWeekBounds(new Date(params.weekStart)) : getCurrentWeekBounds();
+    await materializeChecklistForToday(params.userId);
+
+    const [checklist, delegation] = await Promise.all([
+      checklistService.getMisOccurrences(params.userId, week.weekStart, week.weekEnd),
+      delegationService.getMisOccurrences(params.userId, toDateOnly(week.weekStart), toDateOnly(week.weekEnd)),
+    ]);
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
+    return buildChecklistDrilldown({
+      weekStart: week.weekStart,
+      weekEnd: week.weekEnd,
+      today,
+      checklist,
+      delegation,
+    });
   },
 
   async getHistory(params: {

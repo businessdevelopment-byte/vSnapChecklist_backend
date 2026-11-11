@@ -10,6 +10,10 @@ export const misDashboardQuerySchema = z.object({
 
 export type MisDashboardQueryInput = z.infer<typeof misDashboardQuerySchema>;
 
+export const misChecklistDrilldownQuerySchema = z.object({
+  weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "weekStart must be YYYY-MM-DD").optional(),
+});
+
 export const misHistoryQuerySchema = z.object({
   systemKey: misSystemKeyEnum,
   userId: z.coerce.number().int().positive().optional(),
