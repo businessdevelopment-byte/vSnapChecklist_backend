@@ -4,6 +4,7 @@ import { misSheetService } from "../services/mis/misSheet.service";
 import { permissionService } from "../services/permission.service";
 import { sendSuccess, sendPaginated, sendError } from "../utils/apiResponse";
 import {
+  misChecklistDrilldownQuerySchema,
   misDashboardQuerySchema,
   misHistoryQuerySchema,
   misSheetQuerySchema,
@@ -39,6 +40,28 @@ function ownRowViolation(
 }
 
 export const misController = {
+  // Checklist & Delegation drill-down for one person. Admins: anyone; everyone
+  // else: their own row only (same rule as getDashboard).
+  async getChecklistDrilldown(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = Number(req.params.userId);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        sendError(res, "Invalid user", 400);
+        return;
+      }
+      if (req.user!.role !== "ADMIN" && userId !== req.user!.userId) {
+        sendError(res, "You can only view your own MIS details", 403);
+        return;
+      }
+      const query = misChecklistDrilldownQuerySchema.parse(req.query);
+      const data = await misService.getChecklistDrilldown({ userId, weekStart: query.weekStart });
+      sendSuccess(res, data, "MIS drill-down fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to fetch MIS drill-down", e.status ?? 500);
+    }
+  },
+
   async getDashboard(req: Request, res: Response): Promise<void> {
     try {
       const query = misDashboardQuerySchema.parse(req.query);

@@ -757,6 +757,42 @@ export const checklistService = {
     return counts;
   },
 
+  /**
+   * One row per Checklist occurrence behind a person's MIS numbers for a week,
+   * for the MIS drill-down. Uses the same filters and effective-owner rule as
+   * getStaffStats (leave excluded, active loans credited to the transferee),
+   * so the rows add up to the staff stats. `projected` lists the days in the
+   * week that are not materialized yet (counted in Target, no entry yet).
+   */
+  async getMisOccurrences(userId: number, weekStart: Date, weekEnd: Date) {
+    const now = new Date();
+    const today = toUtcDay(now);
+
+    const entries = await prisma.checklistEntry.findMany({
+      where: {
+        AND: [
+          ownedByEffective(userId, now),
+          { leaveStatus: false, assignedUser: { status: "ACTIVE" } },
+          { taskStartDate: { lte: weekEnd } },
+          // This week's entries, plus older ones that are still open (backlog).
+          { OR: [{ taskStartDate: { gte: weekStart } }, { actualDate: null, adminDone: false }] },
+        ],
+      },
+      select: { description: true, taskStartDate: true, actualDate: true, delayDays: true, adminDone: true },
+    });
+
+    const from = weekStart > today ? weekStart : today;
+    const projected =
+      from > weekEnd
+        ? []
+        : await projectOccurrences({ assignedUserId: userId, assignedUser: { status: "ACTIVE" } }, from, weekEnd);
+
+    return {
+      entries,
+      projected: projected.map((p) => ({ title: p.template.description, day: p.day })),
+    };
+  },
+
   async previewUpcoming(query: PreviewQueryInput, requesterId: number, requesterRole: string) {
     const userId = requesterRole === "ADMIN" ? query.userId : requesterId;
 

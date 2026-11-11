@@ -732,6 +732,45 @@ export const delegationService = {
   },
 
   /**
+   * One row per Delegation task behind a person's MIS numbers for a week, for
+   * the MIS drill-down. Same filters as getMisStaffStats: this week's tasks
+   * plus older tasks not yet DONE (the backlog counted in All Pending).
+   */
+  async getMisOccurrences(userId: number, weekStart: string, weekEnd: string) {
+    const tasks = await prisma.delegationTask.findMany({
+      where: {
+        isDeleted: false,
+        assignedUserId: userId,
+        assignedUser: { status: "ACTIVE" },
+        taskStartDate: { lte: endOfDay(weekEnd) },
+        OR: [{ taskStartDate: { gte: new Date(weekStart) } }, { status: { not: "DONE" } }],
+      },
+      select: {
+        description: true,
+        taskStartDate: true,
+        taskEndDate: true,
+        status: true,
+        history: {
+          where: { status: "DONE", reviewStatus: "APPROVED" },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { isLate: true, submissionDate: true },
+        },
+      },
+    });
+
+    return tasks.map((t) => ({
+      title: t.description,
+      taskStartDate: t.taskStartDate,
+      // Effective deadline — an extended date moves it (taskStartDate is fixed).
+      deadline: t.taskEndDate ?? t.taskStartDate,
+      status: t.status,
+      isLate: t.history[0]?.isLate ?? null,
+      completedOn: t.history[0]?.submissionDate ?? null,
+    }));
+  },
+
+  /**
    * Every delegation task assigned in [startDate, endDate] (the same
    * taskStartDate filter the Delegation page uses) plus a per-person
    * summary following getMisStaffStats()'s definitions, for the Download
