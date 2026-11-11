@@ -644,17 +644,34 @@ export const delegationService = {
       };
     }
 
-    const [total, done, overdue] = await Promise.all([
+    // Submitted "Done" but not yet approved by an admin (VERIFY_PENDING) is its
+    // own bucket: the user has finished, so it is neither Pending nor Overdue,
+    // and it is not Done until approved. Same buckets as getReport().
+    const [total, done, verifyPending, overdue] = await Promise.all([
       prisma.delegationTask.count({ where: base }),
       prisma.delegationTask.count({ where: { ...base, status: "DONE" } }),
+      prisma.delegationTask.count({ where: { ...base, status: "VERIFY_PENDING" } }),
+      // Open (PENDING/PLANNED) and past the effective deadline: the extended
+      // end date when set, else the start date — the rule submit() uses.
       prisma.delegationTask.count({
-        where: { ...base, status: { not: "DONE" }, taskStartDate: { lt: today } },
+        where: {
+          AND: [
+            base,
+            { status: { in: ["PENDING", "PLANNED"] } },
+            {
+              OR: [
+                { taskEndDate: null, taskStartDate: { lt: today } },
+                { taskEndDate: { lt: today } },
+              ],
+            },
+          ],
+        },
       }),
     ]);
 
-    const pending = total - done;
+    const pending = total - done - verifyPending;
     const completionRate = total > 0 ? parseFloat(((done / total) * 100).toFixed(1)) : 0;
-    return { total, done, pending, overdue, completionRate };
+    return { total, done, verifyPending, pending, overdue, completionRate };
   },
 
   async getMisStaffStats(query: Pick<DelegationMisQueryInput, "startDate" | "endDate"> & { userId?: number }) {
@@ -698,7 +715,7 @@ export const delegationService = {
       },
     });
 
-    const map = new Map<number, { username: string; email: string; total: number; done: number; onTime: number }>();
+    const map = new Map<number, { username: string; email: string; total: number; done: number; onTime: number; verifyPending: number }>();
     for (const t of tasks) {
       if (!map.has(t.assignedUserId)) {
         map.set(t.assignedUserId, {
@@ -707,6 +724,7 @@ export const delegationService = {
           total: 0,
           done: 0,
           onTime: 0,
+          verifyPending: 0,
         });
       }
       const s = map.get(t.assignedUserId)!;
@@ -714,6 +732,9 @@ export const delegationService = {
       if (t.status === "DONE") {
         s.done++;
         if (t.history[0]?.isLate === false) s.onTime++;
+      } else if (t.status === "VERIFY_PENDING") {
+        // Submitted, waiting for admin approval: not Pending, not yet Done.
+        s.verifyPending++;
       }
     }
 
@@ -725,7 +746,9 @@ export const delegationService = {
         total: s.total,
         done: s.done,
         onTime: s.onTime,
-        pending: s.total - s.done,
+        verifyPending: s.verifyPending,
+        // Still with the user: PENDING or PLANNED (extended).
+        pending: s.total - s.done - s.verifyPending,
         progress: s.total > 0 ? Math.round((s.done / s.total) * 100) : 0,
       }))
       .sort((a, b) => b.progress - a.progress);
@@ -750,24 +773,32 @@ export const delegationService = {
         taskStartDate: true,
         taskEndDate: true,
         status: true,
+        // "Done" submissions that were approved (the one that completed the
+        // task) or are still waiting for review (VERIFY_PENDING tasks).
         history: {
-          where: { status: "DONE", reviewStatus: "APPROVED" },
+          where: { status: "DONE", reviewStatus: { in: ["APPROVED", "PENDING"] } },
           orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { isLate: true, submissionDate: true },
+          take: 5,
+          select: { isLate: true, submissionDate: true, reviewStatus: true },
         },
       },
     });
 
-    return tasks.map((t) => ({
-      title: t.description,
-      taskStartDate: t.taskStartDate,
-      // Effective deadline — an extended date moves it (taskStartDate is fixed).
-      deadline: t.taskEndDate ?? t.taskStartDate,
-      status: t.status,
-      isLate: t.history[0]?.isLate ?? null,
-      completedOn: t.history[0]?.submissionDate ?? null,
-    }));
+    return tasks.map((t) => {
+      const approved = t.history.find((h) => h.reviewStatus === "APPROVED");
+      const awaiting = t.history.find((h) => h.reviewStatus === "PENDING");
+      return {
+        title: t.description,
+        taskStartDate: t.taskStartDate,
+        // Effective deadline — an extended date moves it (taskStartDate is fixed).
+        deadline: t.taskEndDate ?? t.taskStartDate,
+        status: t.status,
+        isLate: approved?.isLate ?? null,
+        completedOn: approved?.submissionDate ?? null,
+        // Set only while the task waits for admin approval.
+        submittedOn: t.status === "VERIFY_PENDING" ? awaiting?.submissionDate ?? null : null,
+      };
+    });
   },
 
   /**
