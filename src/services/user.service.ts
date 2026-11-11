@@ -18,16 +18,31 @@ const USER_SELECT = {
   createdAt: true,
 } as const;
 
+// What staff get from GET /users: enough for every picker they use (transfer
+// to, Assign Task's assignee / given-by lists, OTP and PMS staff pickers), but
+// no other person's email or employee record.
+const DIRECTORY_SELECT = {
+  id: true,
+  username: true,
+  role: true,
+  status: true,
+  departmentId: true,
+  department: { select: { id: true, name: true } },
+  departments: { select: { department: { select: { id: true, name: true } } } },
+} as const;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function flatten(u: any) {
   return { ...u, departments: (u.departments ?? []).map((d: any) => d.department) };
 }
 
 export const userService = {
-  async getAll(statusFilter?: "ACTIVE" | "INACTIVE") {
+  // Admins get full profiles (Settings → Manage Users); everyone else the
+  // name directory only.
+  async getAll(statusFilter: "ACTIVE" | "INACTIVE" | undefined, viewerRole: string) {
     const users = await prisma.user.findMany({
       orderBy: { username: "asc" },
-      select: USER_SELECT,
+      select: viewerRole === "ADMIN" ? USER_SELECT : DIRECTORY_SELECT,
       ...(statusFilter ? { where: { status: statusFilter } } : {}),
     });
     return users.map(flatten);

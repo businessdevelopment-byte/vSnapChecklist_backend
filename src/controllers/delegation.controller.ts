@@ -62,7 +62,7 @@ export const delegationController = {
     const id = parseTaskId(req, res);
     if (id === null) return;
     try {
-      const task = await delegationService.getById(id);
+      const task = await delegationService.getByIdForRequester(id, req.user!.userId, req.user!.role);
       sendSuccess(res, task, "Delegation task fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -106,6 +106,9 @@ export const delegationController = {
     const id = parseTaskId(req, res);
     if (id === null) return;
     try {
+      // Setting a status directly (e.g. DONE) would skip the submit → Admin
+      // Approve review, so only admins may. No screen calls this endpoint.
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
       const { status } = updateDelegationStatusSchema.parse(req.body);
       const task = await delegationService.updateStatus(id, status);
       sendSuccess(res, task, "Status updated");
@@ -177,6 +180,11 @@ export const delegationController = {
 
   async markHistoryAdminDone(req: Request, res: Response): Promise<void> {
     try {
+      // Same reach as the other review actions: admins, or anyone granted Admin Approve.
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
+        return;
+      }
       const { historyIds } = adminDoneDelegationSchema.parse(req.body);
       const result = await delegationService.markHistoryAdminDone(historyIds);
       sendSuccess(res, result, `${result.count} items marked as admin done`);

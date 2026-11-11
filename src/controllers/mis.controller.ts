@@ -1,14 +1,21 @@
 import { Request, Response } from "express";
 import { misService } from "../services/mis/mis.service";
+import { misSheetService } from "../services/mis/misSheet.service";
+import { permissionService } from "../services/permission.service";
 import { sendSuccess, sendPaginated, sendError } from "../utils/apiResponse";
 import {
   misDashboardQuerySchema,
   misHistoryQuerySchema,
+  misSheetQuerySchema,
   setMisTargetSchema,
   submitMisPlansSchema,
   setMisImagesSchema,
 } from "../schemas/mis.schemas";
 import { getCurrentWeekBounds, getWeekBounds } from "../utils/misWeek";
+
+// The Google Sheet data is the default tab of MIS → Dashboard, so it is
+// guarded by the Dashboard's section key (frontend navigation.ts).
+const MIS_SHEET_SECTION = "mis:dashboard";
 
 // Staff may only edit their own row, and only the one week that is open for
 // them: next week's plan (commitment) or this week's image. Admins: anyone,
@@ -54,6 +61,25 @@ export const misController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to fetch MIS history", e.status ?? 500);
+    }
+  },
+
+  // MIS → Dashboard, Google Sheet tab. Read-only copy of the legacy sheet's
+  // "For Records" tab, each row matched to an app account by name. Admins see
+  // every row; staff need the Dashboard's section grant and see only their
+  // own row.
+  async getSheetForRecords(req: Request, res: Response): Promise<void> {
+    try {
+      if (!(await permissionService.canAccessSection(req.user!, MIS_SHEET_SECTION))) {
+        sendError(res, "You don't have access to MIS → Dashboard", 403);
+        return;
+      }
+      const query = misSheetQuerySchema.parse(req.query);
+      const data = await misSheetService.getForRecords({ refresh: query.refresh });
+      sendSuccess(res, await misSheetService.forViewer(data, req.user!), "MIS Google Sheet fetched");
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to read the MIS Google Sheet", e.status ?? 500);
     }
   },
 

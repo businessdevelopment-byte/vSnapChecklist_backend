@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { ZodError } from "zod";
 import { checklistService } from "../services/checklist.service";
+import { permissionService, ADMIN_APPROVE_SECTION } from "../services/permission.service";
 import { sendSuccess, sendPaginated, sendError } from "../utils/apiResponse";
 import {
   checklistQuerySchema,
@@ -177,6 +178,11 @@ export const checklistController = {
 
   async markAdminDone(req: Request, res: Response): Promise<void> {
     try {
+      // Same reach as the other review actions: admins, or anyone granted Admin Approve.
+      if (!(await permissionService.canAccessSection(req.user!, ADMIN_APPROVE_SECTION))) {
+        sendError(res, "You don't have access to Admin Approve", 403);
+        return;
+      }
       const input = adminDoneSchema.parse(req.body);
       const result = await checklistService.markAdminDone(input.entryIds);
       sendSuccess(res, result, `${result.count} entries marked as admin done`);

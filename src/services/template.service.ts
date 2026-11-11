@@ -8,6 +8,17 @@ import type { CreateTemplateInput, UpdateTemplateInput, TemplateQueryInput, Impo
 // Everything else (completed, admin-done, leave) is history and is kept.
 const openEntry = { actualDate: null, adminDone: false, leaveStatus: false } as const;
 
+export interface TemplateRequester {
+  userId: number;
+  role: string;
+}
+
+// Admins may view or change any task; staff only the ones assigned to them.
+function assertOwnOrAdmin(template: { assignedUserId: number }, requester: TemplateRequester, action: "view" | "edit") {
+  if (requester.role === "ADMIN" || template.assignedUserId === requester.userId) return;
+  throw Object.assign(new Error(`You can only ${action} tasks assigned to you`), { status: 403 });
+}
+
 export const templateService = {
   async getAll(query: TemplateQueryInput) {
     const { skip, take, page, limit } = getPaginationParams(query);
@@ -61,7 +72,8 @@ export const templateService = {
     return { data: templates, pagination: buildPaginationMeta(total, page, limit) };
   },
 
-  async getById(id: number) {
+  // With a requester, staff may only read a task assigned to them.
+  async getById(id: number, requester?: TemplateRequester) {
     const template = await prisma.taskTemplate.findUnique({
       where: { id },
       include: {
@@ -70,6 +82,7 @@ export const templateService = {
       },
     });
     if (!template) throw Object.assign(new Error("Template not found"), { status: 404 });
+    if (requester) assertOwnOrAdmin(template, requester, "view");
     return template;
   },
 
@@ -101,8 +114,18 @@ export const templateService = {
     return created;
   },
 
-  async update(id: number, input: UpdateTemplateInput) {
+  // Admins edit any task. Staff edit or switch on/off only tasks assigned to
+  // them, and can't hand a task to someone else.
+  async update(id: number, input: UpdateTemplateInput, requester: TemplateRequester) {
     const current = await this.getById(id);
+    assertOwnOrAdmin(current, requester, "edit");
+    if (
+      requester.role !== "ADMIN" &&
+      input.assignedUserId !== undefined &&
+      input.assignedUserId !== current.assignedUserId
+    ) {
+      throw Object.assign(new Error("Only an admin can reassign a task"), { status: 403 });
+    }
     // Only one of the two dates may be in the request — check the pair as it will be saved.
     const isoDay = (d: Date) => d.toISOString().slice(0, 10);
     const nextStart = input.startDate ?? isoDay(current.startDate);

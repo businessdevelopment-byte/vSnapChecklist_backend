@@ -160,6 +160,15 @@ export const delegationService = {
     return task;
   },
 
+  // GET /delegation/:id — admins see any task, staff only their own.
+  async getByIdForRequester(id: number, requesterId: number, requesterRole: string) {
+    const task = await this.getById(id);
+    if (requesterRole !== "ADMIN" && task.assignedUserId !== requesterId) {
+      throw Object.assign(new Error("You can only view tasks assigned to you"), { status: 403 });
+    }
+    return task;
+  },
+
   async create(input: CreateDelegationInput) {
     const existing = await prisma.delegationTask.findUnique({ where: { taskCode: input.taskCode } });
     if (existing) throw Object.assign(new Error(`Task code "${input.taskCode}" already exists`), { status: 409 });

@@ -20,6 +20,15 @@ export const misHistoryQuerySchema = z.object({
 
 export type MisHistoryQueryInput = z.infer<typeof misHistoryQuerySchema>;
 
+// ?refresh=1 (or true) skips the 5-minute cache of the Google Sheet; any other
+// value just means "no".
+export const misSheetQuerySchema = z.object({
+  refresh: z
+    .string()
+    .optional()
+    .transform((v) => v === "1" || v === "true"),
+});
+
 export const setMisTargetSchema = z.object({
   userId: z.coerce.number().int().positive(),
   systemKey: misSystemKeyEnum,
