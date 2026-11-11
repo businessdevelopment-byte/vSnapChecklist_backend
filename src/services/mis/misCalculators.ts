@@ -63,6 +63,8 @@ const checklistDelegationCalculator: MisCalculator = {
         checklistService.countProjectedByUser(weekStart, weekEnd, userId),
       ]);
 
+    // Delegation "pending" excludes tasks submitted and waiting for admin
+    // approval (VERIFY_PENDING) — see delegationService.getMisStaffStats.
     const cumulativePendingByUser = new Map<number, number>();
     const cumulativeCompletedByUser = new Map<number, number>();
     for (const s of checklistCumulative) {

@@ -7,7 +7,9 @@
 // the numbers follow the same rules as the MIS table (getStaffStats,
 // getMisStaffStats, misCalculators.checklistDelegationCalculator).
 
-export type DrilldownStatus = "ON_TIME" | "DONE_LATE" | "DONE_NO_TIME" | "OVERDUE" | "PENDING";
+// AWAITING_APPROVAL: a delegation the user submitted as Done that an admin has
+// not approved yet (VERIFY_PENDING). Not Pending, not Overdue, not yet Done.
+export type DrilldownStatus = "ON_TIME" | "DONE_LATE" | "DONE_NO_TIME" | "AWAITING_APPROVAL" | "OVERDUE" | "PENDING";
 
 export interface ChecklistEntryRow {
   description: string;
@@ -29,6 +31,7 @@ export interface DelegationRow {
   status: string;
   isLate: boolean | null;
   completedOn: Date | null;
+  submittedOn: Date | null;
 }
 
 export interface DrilldownTask {
@@ -37,6 +40,8 @@ export interface DrilldownTask {
   taskStartDate: string; // YYYY-MM-DD
   deadline: string | null;
   completedOn: string | null;
+  // Date the user submitted it, while it waits for admin approval.
+  submittedOn: string | null;
   delayDays: number | null;
   inWeek: boolean;
   // false = a day not materialized yet (projected from the template); no entry exists.
@@ -55,6 +60,8 @@ export interface DrilldownSummary {
   notDoneOnTimePct: number | null;
   weekPending: number;
   allPendingTillDate: number;
+  // Submitted, waiting for admin approval (any date up to the week's end).
+  awaitingApproval: number;
 }
 
 export interface DrilldownPage extends DrilldownSummary {
@@ -71,6 +78,8 @@ export interface ChecklistDrilldown {
 }
 
 const COMPLETED: ReadonlySet<DrilldownStatus> = new Set(["ON_TIME", "DONE_LATE", "DONE_NO_TIME"]);
+// Still with the user. AWAITING_APPROVAL is in neither set.
+const OPEN: ReadonlySet<DrilldownStatus> = new Set(["OVERDUE", "PENDING"]);
 
 const dateOnly = (d: Date): string => d.toISOString().slice(0, 10);
 const ratio = (n: number, d: number): number | null => (d > 0 ? Math.round((n / d) * 100) : null);
@@ -94,8 +103,9 @@ function summarize(list: DrilldownTask[]): DrilldownSummary {
     notDoneOnTime,
     notDoneOnTimePct: ratio(notDoneOnTime, target),
     // Real entries/tasks only — days not generated yet are not "open" work yet.
-    weekPending: inWeek.filter((t) => t.generated && !COMPLETED.has(t.status)).length,
-    allPendingTillDate: list.filter((t) => !COMPLETED.has(t.status)).length,
+    weekPending: inWeek.filter((t) => t.generated && OPEN.has(t.status)).length,
+    allPendingTillDate: list.filter((t) => OPEN.has(t.status)).length,
+    awaitingApproval: list.filter((t) => t.status === "AWAITING_APPROVAL").length,
   };
 }
 
@@ -121,6 +131,7 @@ export function buildChecklistDrilldown(input: {
       taskStartDate: dateOnly(e.taskStartDate),
       deadline: null,
       completedOn: e.actualDate ? dateOnly(e.actualDate) : null,
+      submittedOn: null, // Checklist has no approval step.
       delayDays: e.delayDays,
       inWeek: inRange(e.taskStartDate),
       generated: true,
@@ -137,6 +148,7 @@ export function buildChecklistDrilldown(input: {
       taskStartDate: dateOnly(p.day),
       deadline: null,
       completedOn: null,
+      submittedOn: null,
       delayDays: null,
       inWeek: inRange(p.day),
       generated: false,
@@ -148,6 +160,8 @@ export function buildChecklistDrilldown(input: {
     let status: DrilldownStatus;
     if (t.status === "DONE") {
       status = t.isLate === false ? "ON_TIME" : t.isLate === true ? "DONE_LATE" : "DONE_NO_TIME";
+    } else if (t.status === "VERIFY_PENDING") {
+      status = "AWAITING_APPROVAL";
     } else {
       // Deadline = extended end date when set, else the start date.
       status = t.deadline < today ? "OVERDUE" : "PENDING";
@@ -158,6 +172,7 @@ export function buildChecklistDrilldown(input: {
       taskStartDate: dateOnly(t.taskStartDate),
       deadline: dateOnly(t.deadline),
       completedOn: t.completedOn ? dateOnly(t.completedOn) : null,
+      submittedOn: t.submittedOn ? dateOnly(t.submittedOn) : null,
       // Delegation stores only whether a submission was late, not by how many days.
       delayDays: null,
       inWeek: inRange(t.taskStartDate),
