@@ -19,6 +19,18 @@ const envSchema = z.object({
   // Leave unset for local dev (host-only cookie, matches localhost same-origin setup).
 COOKIE_DOMAIN: z.string().optional(),
   VSNAPU_JOB_MASTER_BASE_URL: z.string().url().default("https://apis.vsnapu.com"),
+  // Legacy MIS Google Sheet ("New Mis Summary V.01") and its "For Records"
+  // tab, read-only via the sheet's public link (misSheet.service.ts).
+  MIS_SHEET_ID: z.string().min(1).default("1H8mSp4YEUxKQC7dIKTj0hNcpIWf1gpLJh2BIt2WhGiQ"),
+  MIS_SHEET_FOR_RECORDS_GID: z.string().regex(/^\d+$/, "MIS_SHEET_FOR_RECORDS_GID must be the tab's numeric gid").default("39144063"),
+  // The MIS sheet's Apps Script web app (".../macros/s/<id>/exec"), the same
+  // one the old MIS app reads with ?sheet=. Preferred source when set; the
+  // public CSV export is the fallback. Not defaulted: anyone with this URL
+  // can read every tab, so it lives only in .env.
+  MIS_APPS_SCRIPT_URL: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url().startsWith("https://script.google.com/", "MIS_APPS_SCRIPT_URL must be a script.google.com web-app URL").optional()
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);

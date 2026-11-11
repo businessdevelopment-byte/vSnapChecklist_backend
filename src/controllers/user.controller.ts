@@ -9,7 +9,7 @@ export const userController = {
     try {
       const { status } = req.query as { status?: string };
       const validStatus = status === "ACTIVE" || status === "INACTIVE" ? status : undefined;
-      const users = await userService.getAll(validStatus);
+      const users = await userService.getAll(validStatus, req.user!.role);
       sendSuccess(res, users, "Users fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

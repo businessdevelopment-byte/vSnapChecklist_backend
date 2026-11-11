@@ -14,7 +14,9 @@ export const templateController = {
   async getAll(req: Request, res: Response): Promise<void> {
     try {
       const query = templateQuerySchema.parse(req.query);
-      const result = await templateService.getAll(query);
+      // Staff only ever see tasks assigned to them, whatever the query asks for.
+      const assignedUserId = req.user!.role === "ADMIN" ? query.assignedUserId : req.user!.userId;
+      const result = await templateService.getAll({ ...query, assignedUserId });
       sendPaginated(res, result, "Templates fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -24,7 +26,7 @@ export const templateController = {
 
   async getById(req: Request, res: Response): Promise<void> {
     try {
-      const template = await templateService.getById(Number(req.params.id));
+      const template = await templateService.getById(Number(req.params.id), req.user!);
       sendSuccess(res, template, "Template fetched");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
@@ -46,7 +48,7 @@ export const templateController = {
   async update(req: Request, res: Response): Promise<void> {
     try {
       const input = updateTemplateSchema.parse(req.body);
-      const template = await templateService.update(Number(req.params.id), input);
+      const template = await templateService.update(Number(req.params.id), input, req.user!);
       sendSuccess(res, template, "Template updated");
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
