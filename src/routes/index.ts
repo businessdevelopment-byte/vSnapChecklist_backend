@@ -40,6 +40,7 @@ import hrDashboardRoutes from "./hrDashboard.routes";
 import companyCalendarRoutes from "./companyCalendar.routes";
 import misRoutes from "./mis.routes";
 import permissionRoutes from "./permission.routes";
+import sheetSyncRoutes from "./sheetSync.routes";
 import { prisma } from "../config/database";
 
 const router = Router();
@@ -102,5 +103,6 @@ router.use("/hr-dashboard", hrDashboardRoutes);
 router.use("/company-calendar", companyCalendarRoutes);
 router.use("/mis", misRoutes);
 router.use("/permissions", permissionRoutes);
+router.use("/sheet-sync", sheetSyncRoutes);
 
 export default router;

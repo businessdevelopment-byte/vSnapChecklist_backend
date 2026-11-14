@@ -56,6 +56,7 @@ model User {
   followUpsCreated              FollowUp[]              @relation("FollowUpCreatedBy")
   jobApplicationsCreated        JobApplication[]        @relation("JobApplicationCreatedBy")
   politicalProjectOrdersCreated PoliticalProjectOrder[] @relation("PoliticalProjectOrderCreatedBy")
+  sheetSyncRunsTriggered        SheetSyncRun[]          @relation("SheetSyncRunTriggeredBy")
 
   @@index([username])
   @@index([departmentId])
@@ -1151,6 +1152,40 @@ model SystemSettings {
   skipSundays Boolean @default(true)
 
   @@map("system_settings")
+}
+
+// One row per Checklist & Delegation → Google Sheet sync run
+// (services/sheetSync). Drives the Settings status panel, the "already
+// running" guard and the catch-up run after a missed nightly time.
+model SheetSyncRun {
+  id                Int                @id @default(autoincrement())
+  trigger           SheetSyncTrigger
+  status            SheetSyncStatus    @default(RUNNING)
+  startedAt         DateTime           @default(now())
+  finishedAt        DateTime?
+  checklistRows     Int?
+  delegationRows    Int?
+  // Grid cells the whole spreadsheet uses after the run (Google's limit is
+  // 10,000,000); drives the size warning.
+  sheetCells        Int?
+  error             String?
+  triggeredByUserId Int?
+  triggeredBy       User?              @relation("SheetSyncRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, startedAt])
+  @@map("sheet_sync_runs")
+}
+
+enum SheetSyncTrigger {
+  SCHEDULED
+  MANUAL
+  CATCH_UP
+}
+
+enum SheetSyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
 }
 
 model Holiday {
