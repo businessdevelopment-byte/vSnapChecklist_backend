@@ -31,6 +31,29 @@ COOKIE_DOMAIN: z.string().optional(),
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.string().url().startsWith("https://script.google.com/", "MIS_APPS_SCRIPT_URL must be a script.google.com web-app URL").optional()
   ),
+
+  // Nightly Checklist & Delegation → Google Sheet mirror (services/sheetSync).
+  // Off unless both the Apps Script web-app URL and its secret are set; the
+  // script (scripts/sheet-sync/Code.gs) lives in the target sheet.
+  SHEET_SYNC_URL: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url().startsWith("https://script.google.com/", "SHEET_SYNC_URL must be a script.google.com web-app URL").optional()
+  ),
+  SHEET_SYNC_SECRET: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(32, "SHEET_SYNC_SECRET must be at least 32 characters").optional()
+  ),
+  // Lets a configured dev machine stay quiet so only production writes the sheet.
+  SHEET_SYNC_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  // Daily run time, 24-hour HH:mm in India time (IST).
+  SHEET_SYNC_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "SHEET_SYNC_TIME must be HH:mm (24-hour)").default("23:45"),
+  // Only used for the "Open sheet" link in Settings.
+  SHEET_SYNC_SPREADSHEET_ID: z.string().min(1).default("1pwd6iLpSQ0nncoc99vZCjo9WWgHcWWWmhNG5xQ5uajI"),
+  SHEET_SYNC_CHECKLIST_TAB: z.string().min(1).default("Checklist"),
+  SHEET_SYNC_DELEGATION_TAB: z.string().min(1).default("Delegation"),
 });
 
 const parsed = envSchema.safeParse(process.env);
