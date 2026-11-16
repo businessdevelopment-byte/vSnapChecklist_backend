@@ -17,6 +17,7 @@ import {
   deleteDelegationsSchema,
 } from "../schemas/delegation.schemas";
 import { reportQuerySchema } from "../schemas/report.schemas";
+import { setSampleVideoSchema } from "../schemas/video.schemas";
 
 function parseTaskId(req: Request, res: Response): number | null {
   const id = Number(req.params.id);
@@ -73,11 +74,31 @@ export const delegationController = {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createDelegationSchema.parse(req.body);
-      const task = await delegationService.create(input);
+      const task = await delegationService.create(input, req.user!);
       sendSuccess(res, task, "Delegation task created", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to create delegation task", e.status ?? 400);
+    }
+  },
+
+  // Quick Task's Attach / Replace / Remove video. Admins only, like the rest
+  // of Quick Task's delegation actions.
+  async setSampleVideo(req: Request, res: Response): Promise<void> {
+    const id = parseTaskId(req, res);
+    if (id === null) return;
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const { sampleVideoId } = setSampleVideoSchema.parse(req.body);
+      const task = await delegationService.setSampleVideo(id, sampleVideoId, req.user!);
+      sendSuccess(res, task, sampleVideoId ? "Video attached" : "Video removed");
+    } catch (err: unknown) {
+      if (err instanceof ZodError) {
+        sendError(res, err.issues[0]?.message ?? "Invalid video", 400);
+        return;
+      }
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to update the video", e.status ?? 400);
     }
   },
 
@@ -159,7 +180,7 @@ export const delegationController = {
     if (id === null) return;
     try {
       const input = submitDelegationSchema.parse(req.body);
-      const history = await delegationService.submit(id, input, req.user!.userId);
+      const history = await delegationService.submit(id, input, req.user!.userId, req.user!.role);
       sendSuccess(res, history, "Task submitted", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

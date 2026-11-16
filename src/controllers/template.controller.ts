@@ -37,7 +37,7 @@ export const templateController = {
   async create(req: Request, res: Response): Promise<void> {
     try {
       const input = createTemplateSchema.parse(req.body);
-      const template = await templateService.create(input);
+      const template = await templateService.create(input, req.user!);
       sendSuccess(res, template, "Template created", 201);
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };

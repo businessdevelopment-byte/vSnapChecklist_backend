@@ -3,6 +3,8 @@ import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { pruneDeletedCodesFromPendingRequests } from "./transfer.service";
 import { normalizeUsername } from "../utils/username";
+import { isUniqueViolation } from "../utils/prismaErrors";
+import { videoUploadService, type VideoRequester } from "./video/videoUpload.service";
 import type {
   CreateDelegationInput,
   SubmitDelegationInput,
@@ -169,9 +171,10 @@ export const delegationService = {
     return task;
   },
 
-  async create(input: CreateDelegationInput) {
+  async create(input: CreateDelegationInput, requester: VideoRequester) {
     const existing = await prisma.delegationTask.findUnique({ where: { taskCode: input.taskCode } });
     if (existing) throw Object.assign(new Error(`Task code "${input.taskCode}" already exists`), { status: 409 });
+    if (input.sampleVideoId) await videoUploadService.assertAttachable(input.sampleVideoId, requester);
 
     return prisma.delegationTask.create({
       data: {
@@ -186,7 +189,24 @@ export const delegationService = {
         enableReminders: input.enableReminders ?? true,
         requireAttachment: input.requireAttachment ?? false,
         sampleImageUrl: input.sampleImageUrl ?? null,
+        sampleVideoId: input.sampleVideoId ?? null,
       },
+      include: {
+        assignedUser: { select: { id: true, username: true } },
+        department: { select: { id: true, name: true } },
+      },
+    });
+  },
+
+  // Attach, replace or remove the reference video (Quick Task) — e.g. after
+  // the original upload never finished.
+  async setSampleVideo(id: number, sampleVideoId: string | null, requester: VideoRequester) {
+    const task = await prisma.delegationTask.findFirst({ where: { id, isDeleted: false }, select: { id: true } });
+    if (!task) throw Object.assign(new Error("Delegation task not found"), { status: 404 });
+    if (sampleVideoId) await videoUploadService.assertAttachable(sampleVideoId, requester);
+    return prisma.delegationTask.update({
+      where: { id },
+      data: { sampleVideoId },
       include: {
         assignedUser: { select: { id: true, username: true } },
         department: { select: { id: true, name: true } },
@@ -437,9 +457,18 @@ export const delegationService = {
     });
   },
 
-  async submit(id: number, input: SubmitDelegationInput, submittedByUserId: number) {
+  // Only the assignee (or an admin) may submit a task. Photo OR video, never
+  // both; a video may still be uploading — the submission is recorded at once
+  // and the video catches up (same rule as Assign Task).
+  async submit(id: number, input: SubmitDelegationInput, submittedByUserId: number, requesterRole: string) {
+    if (input.imageUrl && input.videoId) {
+      throw Object.assign(new Error("Attach either a photo or a video, not both"), { status: 400 });
+    }
     const task = await this.getById(id);
 
+    if (requesterRole !== "ADMIN" && task.assignedUserId !== submittedByUserId) {
+      throw Object.assign(new Error("You can only submit tasks assigned to you"), { status: 403 });
+    }
     if (task.isDeleted) {
       throw Object.assign(new Error("This task has been deleted"), { status: 409 });
     }
@@ -450,8 +479,11 @@ export const delegationService = {
       throw Object.assign(new Error("This task is already completed"), { status: 409 });
     }
 
-    if (task.requireAttachment && !input.imageUrl) {
-      throw Object.assign(new Error("This task requires an attached image"), { status: 400 });
+    if (task.requireAttachment && !input.imageUrl && !input.videoId) {
+      throw Object.assign(new Error("This task requires an attached photo or video"), { status: 400 });
+    }
+    if (input.videoId) {
+      await videoUploadService.assertAttachable(input.videoId, { userId: submittedByUserId, role: requesterRole });
     }
 
     // UTC midnight of the server's calendar day, as the import does: a local
@@ -471,43 +503,51 @@ export const delegationService = {
     const newStatus = input.status === "DONE" ? "VERIFY_PENDING" : "PLANNED";
     const isExtending = input.status === "EXTEND_DATE" && !!input.nextTargetDate;
 
-    return prisma.$transaction(async (tx) => {
-      // The status change doubles as the lock: it only matches while the task
-      // is still open, so a retry or double-click that slipped past the check
-      // above can't queue a second "Done" for approval.
-      const claimed = await tx.delegationTask.updateMany({
-        where: { id, isDeleted: false, status: { in: ["PENDING", "PLANNED"] } },
-        data: {
-          status: newStatus,
-          // taskStartDate is the fixed assignment date and is never touched by
-          // an extension — only taskEndDate (the effective deadline) moves,
-          // and moves again on every subsequent extension.
-          ...(isExtending && { taskEndDate: new Date(input.nextTargetDate!) }),
-        },
-      });
-      if (claimed.count === 0) {
-        throw Object.assign(new Error("Already submitted — refresh the list"), { status: 409 });
-      }
+    try {
+      return await prisma.$transaction(async (tx) => {
+        // The status change doubles as the lock: it only matches while the task
+        // is still open, so a retry or double-click that slipped past the check
+        // above can't queue a second "Done" for approval.
+        const claimed = await tx.delegationTask.updateMany({
+          where: { id, isDeleted: false, status: { in: ["PENDING", "PLANNED"] } },
+          data: {
+            status: newStatus,
+            // taskStartDate is the fixed assignment date and is never touched by
+            // an extension — only taskEndDate (the effective deadline) moves,
+            // and moves again on every subsequent extension.
+            ...(isExtending && { taskEndDate: new Date(input.nextTargetDate!) }),
+          },
+        });
+        if (claimed.count === 0) {
+          throw Object.assign(new Error("Already submitted — refresh the list"), { status: 409 });
+        }
 
-      return tx.delegationHistory.create({
-        data: {
-          delegationTaskId: id,
-          submittedByUserId,
-          submissionDate: today,
-          status: input.status,
-          nextTargetDate: input.nextTargetDate ? new Date(input.nextTargetDate) : undefined,
-          remarks: input.remarks,
-          imageUrl: input.imageUrl,
-          taskDescription: task.description,
-          givenBy: task.givenBy,
-          isLate,
-          // "Done" submissions wait for admin verification (see approveSubmission/
-          // rejectSubmission below) before they actually count as complete.
-          // "Extend date" isn't a completion claim, so it needs no review.
-          reviewStatus: input.status === "DONE" ? "PENDING" : undefined,
-        },
+        return tx.delegationHistory.create({
+          data: {
+            delegationTaskId: id,
+            submittedByUserId,
+            submissionDate: today,
+            status: input.status,
+            nextTargetDate: input.nextTargetDate ? new Date(input.nextTargetDate) : undefined,
+            remarks: input.remarks,
+            imageUrl: input.imageUrl,
+            videoId: input.videoId,
+            taskDescription: task.description,
+            givenBy: task.givenBy,
+            isLate,
+            // "Done" submissions wait for admin verification (see reviewSubmission)
+            // before they actually count as complete. "Extend date" isn't a
+            // completion claim, so it needs no review.
+            reviewStatus: input.status === "DONE" ? "PENDING" : undefined,
+          },
+        });
       });
-    });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw Object.assign(new Error("This video is already attached to another submission"), { status: 409 });
+      }
+      throw err;
+    }
   },
 
   async getHistory(query: DelegationHistoryQueryInput, requesterId: number, requesterRole: string) {
@@ -588,46 +628,46 @@ export const delegationService = {
     return [...pending, ...reviewed];
   },
 
-  async approveSubmission(historyId: number, reviewedByUserId: number) {
-    const history = await prisma.delegationHistory.findUnique({ where: { id: historyId } });
-    if (!history) throw Object.assign(new Error("Submission not found"), { status: 404 });
-    if (history.reviewStatus !== "PENDING") {
-      throw Object.assign(new Error("This submission has already been reviewed"), { status: 400 });
-    }
+  // Approve/reject race: only the first review claims a PENDING submission
+  // (compare-and-set in one transaction). A second admin acting at the same
+  // moment gets 409 instead of both passing a read-then-write check.
+  async reviewSubmission(
+    historyId: number,
+    reviewedByUserId: number,
+    decision: "APPROVED" | "REJECTED",
+    reviewNote?: string
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const claimed = await tx.delegationHistory.updateMany({
+        where: { id: historyId, reviewStatus: "PENDING" },
+        data: {
+          reviewStatus: decision,
+          reviewedByUserId,
+          reviewedAt: new Date(),
+          ...(decision === "REJECTED" && { reviewNote }),
+        },
+      });
+      if (claimed.count === 0) {
+        const exists = await tx.delegationHistory.findUnique({ where: { id: historyId }, select: { id: true } });
+        if (!exists) throw Object.assign(new Error("Submission not found"), { status: 404 });
+        throw Object.assign(new Error("This submission has already been reviewed"), { status: 409 });
+      }
 
-    const [updatedHistory] = await prisma.$transaction([
-      prisma.delegationHistory.update({
-        where: { id: historyId },
-        data: { reviewStatus: "APPROVED", reviewedByUserId, reviewedAt: new Date() },
-      }),
-      prisma.delegationTask.update({
+      const history = await tx.delegationHistory.findUniqueOrThrow({ where: { id: historyId } });
+      await tx.delegationTask.update({
         where: { id: history.delegationTaskId },
-        data: { status: "DONE" },
-      }),
-    ]);
-
-    return updatedHistory;
+        data: { status: decision === "APPROVED" ? "DONE" : "PENDING" },
+      });
+      return history;
+    });
   },
 
-  async rejectSubmission(historyId: number, reviewedByUserId: number, reviewNote?: string) {
-    const history = await prisma.delegationHistory.findUnique({ where: { id: historyId } });
-    if (!history) throw Object.assign(new Error("Submission not found"), { status: 404 });
-    if (history.reviewStatus !== "PENDING") {
-      throw Object.assign(new Error("This submission has already been reviewed"), { status: 400 });
-    }
+  approveSubmission(historyId: number, reviewedByUserId: number) {
+    return this.reviewSubmission(historyId, reviewedByUserId, "APPROVED");
+  },
 
-    const [updatedHistory] = await prisma.$transaction([
-      prisma.delegationHistory.update({
-        where: { id: historyId },
-        data: { reviewStatus: "REJECTED", reviewedByUserId, reviewedAt: new Date(), reviewNote },
-      }),
-      prisma.delegationTask.update({
-        where: { id: history.delegationTaskId },
-        data: { status: "PENDING" },
-      }),
-    ]);
-
-    return updatedHistory;
+  rejectSubmission(historyId: number, reviewedByUserId: number, reviewNote?: string) {
+    return this.reviewSubmission(historyId, reviewedByUserId, "REJECTED", reviewNote);
   },
 
   async getMisStats(query: DelegationMisQueryInput, requesterRole: string, requesterId: number) {
@@ -835,7 +875,7 @@ export const delegationService = {
         department: { select: { name: true } },
         history: {
           orderBy: { createdAt: "desc" },
-          select: { submissionDate: true, status: true, remarks: true, imageUrl: true, isLate: true, reviewStatus: true },
+          select: { submissionDate: true, status: true, remarks: true, imageUrl: true, videoId: true, isLate: true, reviewStatus: true },
         },
       },
     });
@@ -895,6 +935,7 @@ export const delegationService = {
         completedOn: approvedDone ? dateColumnKey(approvedDone.submissionDate) : null,
         submittedLate: approvedDone ? approvedDone.isLate : null,
         attachmentUrl: t.history.find((h) => h.imageUrl)?.imageUrl ?? null,
+        hasVideo: t.history.some((h) => !!h.videoId),
       };
     });
 

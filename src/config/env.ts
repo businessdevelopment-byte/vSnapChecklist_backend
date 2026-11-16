@@ -54,6 +54,47 @@ COOKIE_DOMAIN: z.string().optional(),
   SHEET_SYNC_SPREADSHEET_ID: z.string().min(1).default("1pwd6iLpSQ0nncoc99vZCjo9WWgHcWWWmhNG5xQ5uajI"),
   SHEET_SYNC_CHECKLIST_TAB: z.string().min(1).default("Checklist"),
   SHEET_SYNC_DELEGATION_TAB: z.string().min(1).default("Delegation"),
+
+  // Where uploads are written and served from (/uploads). Defaults to
+  // <cwd>/uploads. Videos go under its videos/ subfolder.
+  UPLOAD_DIR: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().optional()
+  ),
+  // Reference videos on Assign Task (services/video): caps for one video.
+  VIDEO_MAX_MB: z.coerce.number().int().positive().default(500),
+  VIDEO_MAX_DURATION_SEC: z.coerce.number().int().positive().default(900),
+  // Explicit ffmpeg/ffprobe binaries. Unset → the ones bundled by the
+  // ffmpeg-static/ffprobe-static packages, else whatever is on PATH.
+  FFMPEG_PATH: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().optional()
+  ),
+  FFPROBE_PATH: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().optional()
+  ),
+  // false → uploaded videos are kept and played as-is (no quality ladder).
+  VIDEO_TRANSCODE_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  // Capacity for many people submitting at once. Defaults suit a single
+  // Windows server; raise them only with the CPU and disk to match.
+  // Uploads one user may have in flight (a bulk submit of several tasks).
+  VIDEO_MAX_ACTIVE_UPLOADS_PER_USER: z.coerce.number().int().positive().default(10),
+  // Uploads in flight across all users, before new ones get 429.
+  VIDEO_MAX_ACTIVE_UPLOADS_TOTAL: z.coerce.number().int().positive().default(60),
+  // Chunk bodies held in memory at once (~5 MB each); the rest get 503 and retry.
+  VIDEO_MAX_CONCURRENT_CHUNKS: z.coerce.number().int().positive().default(12),
+  // Videos converted in parallel. Each ffmpeg gets its share of the CPU threads.
+  VIDEO_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  // ffprobe processes running at once when uploads are being finished.
+  VIDEO_MAX_CONCURRENT_PROBES: z.coerce.number().int().positive().default(4),
+  // Refuse new uploads when free space on the uploads drive would drop below this.
+  VIDEO_MIN_FREE_DISK_GB: z.coerce.number().positive().default(5),
+  // Postgres connections for this process (interactive transactions hold one).
+  DB_POOL_MAX: z.coerce.number().int().positive().default(20),
 });
 
 const parsed = envSchema.safeParse(process.env);
