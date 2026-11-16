@@ -41,6 +41,7 @@ import companyCalendarRoutes from "./companyCalendar.routes";
 import misRoutes from "./mis.routes";
 import permissionRoutes from "./permission.routes";
 import sheetSyncRoutes from "./sheetSync.routes";
+import videoRoutes from "./video.routes";
 import { prisma } from "../config/database";
 
 const router = Router();
@@ -72,6 +73,7 @@ router.use("/departments", departmentRoutes);
 router.use("/holidays", holidayRoutes);
 router.use("/system-settings", systemSettingsRoutes);
 router.use("/upload", uploadRoutes);
+router.use("/videos", videoRoutes);
 router.use("/otp-jobs", otpJobRoutes);
 router.use("/otp-jobs", otpStageRoutes);
 router.use("/ops-allotments", opsAllotmentRoutes);

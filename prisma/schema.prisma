@@ -57,6 +57,7 @@ model User {
   jobApplicationsCreated        JobApplication[]        @relation("JobApplicationCreatedBy")
   politicalProjectOrdersCreated PoliticalProjectOrder[] @relation("PoliticalProjectOrderCreatedBy")
   sheetSyncRunsTriggered        SheetSyncRun[]          @relation("SheetSyncRunTriggeredBy")
+  videosUploaded                VideoAsset[]            @relation("VideoUploadedBy")
 
   @@index([username])
   @@index([departmentId])
@@ -155,12 +156,14 @@ model TaskTemplate {
   enableReminders   Boolean          @default(true)
   requireAttachment Boolean          @default(false)
   sampleImageUrl    String?
+  sampleVideoId     String?
   isActive          Boolean          @default(true)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   entries           ChecklistEntry[]
   assignedUser      User             @relation("TemplateAssignedTo", fields: [assignedUserId], references: [id])
   department        Department       @relation(fields: [departmentId], references: [id])
+  sampleVideo       VideoAsset?      @relation(fields: [sampleVideoId], references: [id], onDelete: SetNull)
 
   @@index([assignedUserId, isActive])
   @@index([frequency, startDate])
@@ -182,6 +185,9 @@ model ChecklistEntry {
   enableReminders    Boolean           @default(true)
   requireAttachment  Boolean           @default(false)
   sampleImageUrl     String?
+  // Copied from the template when the row is generated (like sampleImageUrl);
+  // a template's video change also updates its still-open rows.
+  sampleVideoId      String?
   actualDate         DateTime?         @db.Date
   delayDays          Int?
   completionStatus   CompletionStatus?
@@ -203,6 +209,11 @@ model ChecklistEntry {
   department         Department        @relation(fields: [departmentId], references: [id])
   template           TaskTemplate?     @relation(fields: [templateId], references: [id])
   transferredTo      User?             @relation("EntryTransferredTo", fields: [transferredToId], references: [id])
+  sampleVideo        VideoAsset?       @relation("ChecklistSampleVideo", fields: [sampleVideoId], references: [id], onDelete: SetNull)
+  // The video the doer attached when completing the task. Unique: one video
+  // belongs to at most one submission, so a double attach fails in the DB.
+  completionVideoId  String?           @unique
+  completionVideo    VideoAsset?       @relation("ChecklistCompletionVideo", fields: [completionVideoId], references: [id], onDelete: SetNull)
   transferLogs       TaskTransferLog[]
 
   @@unique([templateId, taskStartDate])
@@ -213,6 +224,8 @@ model ChecklistEntry {
   @@index([templateId, taskStartDate])
   // Expired-loan cleanup + "on loan to me" lookups run on every checklist read.
   @@index([transferredToId, transferValidUntil])
+  // The video sweeper's "is anything still using this video?" lookup.
+  @@index([sampleVideoId])
   @@map("checklist_entries")
 }
 
@@ -228,6 +241,7 @@ model DelegationTask {
   enableReminders   Boolean             @default(true)
   requireAttachment Boolean             @default(false)
   sampleImageUrl    String?
+  sampleVideoId     String?
   status            DelegationStatus    @default(PENDING)
   rating            Int?
   isDeleted         Boolean             @default(false)
@@ -238,12 +252,53 @@ model DelegationTask {
   transferLogs      TaskTransferLog[]
   assignedUser      User                @relation("DelegationAssignedTo", fields: [assignedUserId], references: [id])
   department        Department          @relation(fields: [departmentId], references: [id])
+  sampleVideo       VideoAsset?         @relation(fields: [sampleVideoId], references: [id], onDelete: SetNull)
 
   @@index([assignedUserId, status])
   @@index([taskStartDate, status])
   @@index([departmentId])
   @@index([assignedUserId, isDeleted, status])
   @@map("delegation_tasks")
+}
+
+// A reference video attached on Assign Task (services/video). Uploaded in
+// chunks (receivedBytes grows to sizeBytes), then transcoded by the in-process
+// worker into an HLS ladder under UPLOAD_DIR/videos/<id>/. A task may point at
+// it while it is still UPLOADING: Assign Task never waits for the upload.
+// Files are removed by the worker's sweeper once nothing references the row.
+model VideoAsset {
+  id                 String           @id @default(cuid())
+  status             VideoStatus      @default(UPLOADING)
+  originalName       String
+  mimeType           String
+  // File extension kept for the original ("mp4", "mov", …).
+  ext                String
+  sizeBytes          BigInt
+  receivedBytes      BigInt           @default(0)
+  durationSec        Float?
+  width              Int?
+  height             Int?
+  // [{ label: "720p", height, bandwidth }] — the HLS rungs actually produced.
+  renditions         Json?
+  processingProgress Int              @default(0)
+  // The uploaded file is kept until the HLS ladder is ready (playable as a
+  // fallback meanwhile), then deleted to save disk.
+  hasOriginal        Boolean          @default(false)
+  hasPoster          Boolean          @default(false)
+  error              String?
+  uploadedById       Int?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  uploadedBy         User?            @relation("VideoUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  templates          TaskTemplate[]
+  checklistEntries   ChecklistEntry[]   @relation("ChecklistSampleVideo")
+  completionEntries  ChecklistEntry[]   @relation("ChecklistCompletionVideo")
+  delegationTasks    DelegationTask[]
+  submissionHistory  DelegationHistory[] @relation("SubmissionVideo")
+
+  @@index([status, updatedAt])
+  @@index([uploadedById, status])
+  @@map("video_assets")
 }
 
 model DelegationHistory {
@@ -257,6 +312,10 @@ model DelegationHistory {
   nextTargetDate    DateTime?               @db.Date
   remarks           String?
   imageUrl          String?
+  // Completion video the doer attached with this submission (unique: one
+  // video belongs to at most one submission).
+  videoId           String?                 @unique
+  submissionVideo   VideoAsset?             @relation("SubmissionVideo", fields: [videoId], references: [id], onDelete: SetNull)
   taskDescription   String
   givenBy           String?
   adminDoneStatus   String?
@@ -1278,6 +1337,14 @@ enum Frequency {
   END_OF_3RD_WEEK
   END_OF_4TH_WEEK
   END_OF_LAST_WEEK
+}
+
+enum VideoStatus {
+  UPLOADING
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
 }
 
 enum DelegationFrequency {

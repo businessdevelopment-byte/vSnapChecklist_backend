@@ -12,6 +12,8 @@ import type {
   LeaveLogsQueryInput,
 } from "../schemas/checklist.schemas";
 import { REPORT_MAX_ROWS, tooManyRowsError, type ReportQueryInput } from "../schemas/report.schemas";
+import { videoUploadService } from "./video/videoUpload.service";
+import { isUniqueViolation } from "../utils/prismaErrors";
 
 // ─────────────────────────────────────────
 // Working-day helpers
@@ -409,6 +411,7 @@ async function backfillTemplates(
     enableReminders: template.enableReminders,
     requireAttachment: template.requireAttachment,
     sampleImageUrl: template.sampleImageUrl ?? null,
+    sampleVideoId: template.sampleVideoId ?? null,
   }));
 
   const chunks: Prisma.ChecklistEntryCreateManyInput[][] = [];
@@ -846,11 +849,13 @@ export const checklistService = {
       enableReminders: template.enableReminders,
       requireAttachment: template.requireAttachment,
       sampleImageUrl: template.sampleImageUrl,
+      sampleVideoId: template.sampleVideoId,
       actualDate: null as Date | null,
       delayDays: null as number | null,
       completionStatus: null as Prisma.ChecklistEntryUncheckedCreateInput["completionStatus"],
       remarks: null as string | null,
       uploadedImageUrl: null as string | null,
+      completionVideoId: null as string | null,
       adminDone: false,
       leaveStatus: false,
       transferredToId: null as number | null,
@@ -1116,6 +1121,7 @@ export const checklistService = {
         completionStatus: true,
         remarks: true,
         uploadedImageUrl: true,
+        completionVideoId: true,
         adminDone: true,
         leaveStatus: true,
         transferValidUntil: true,
@@ -1168,6 +1174,7 @@ export const checklistService = {
       completionStatus: e.completionStatus,
       remarks: e.remarks,
       attachmentUrl: e.uploadedImageUrl,
+      hasVideo: !!e.completionVideoId,
     }));
 
     const summary = [...tallies.values()]
@@ -1228,39 +1235,69 @@ export const checklistService = {
     return months;
   },
 
+  // One attachment per completion: a photo or a video. A new attachment
+  // replaces the previous one; sending neither keeps what the task has.
+  // The entry row is locked for the whole check-and-write, so two submits of
+  // the same task run one after the other (the second sees the first's
+  // actualDate and attachment) instead of racing to overwrite each other.
   async submitEntry(entryId: bigint, input: SubmitChecklistInput, submittedByUserId: number, requesterRole: string) {
-    const entry = await prisma.checklistEntry.findUnique({ where: { id: entryId } });
-    if (!entry) throw Object.assign(new Error("Entry not found"), { status: 404 });
-
-    const today = toUtcDay(new Date());
-    const isActiveTransferee = entry.transferredToId === submittedByUserId
-      && entry.transferValidUntil != null && entry.transferValidUntil >= today;
-
-    if (requesterRole !== "ADMIN" && entry.assignedUserId !== submittedByUserId && !isActiveTransferee) {
-      throw Object.assign(new Error("Cannot submit someone else's task"), { status: 403 });
+    if (input.uploadedImageUrl && input.completionVideoId) {
+      throw Object.assign(new Error("Attach either a photo or a video, not both"), { status: 400 });
+    }
+    const requester = { userId: submittedByUserId, role: requesterRole };
+    if (input.completionVideoId) {
+      await videoUploadService.assertAttachable(input.completionVideoId, requester);
     }
 
-    if (entry.requireAttachment && !input.uploadedImageUrl) {
-      throw Object.assign(new Error("This task requires an attached image"), { status: 400 });
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM checklist_entries WHERE id = ${entryId} FOR UPDATE`;
+
+        const entry = await tx.checklistEntry.findUnique({ where: { id: entryId } });
+        if (!entry) throw Object.assign(new Error("Entry not found"), { status: 404 });
+
+        const today = toUtcDay(new Date());
+        const isActiveTransferee = entry.transferredToId === submittedByUserId
+          && entry.transferValidUntil != null && entry.transferValidUntil >= today;
+
+        if (requesterRole !== "ADMIN" && entry.assignedUserId !== submittedByUserId && !isActiveTransferee) {
+          throw Object.assign(new Error("Cannot submit someone else's task"), { status: 403 });
+        }
+
+        if (entry.requireAttachment && !input.uploadedImageUrl && !input.completionVideoId) {
+          throw Object.assign(new Error("This task requires an attached photo or video"), { status: 400 });
+        }
+
+        const taskDate = new Date(entry.taskStartDate);
+        taskDate.setUTCHours(0, 0, 0, 0);
+        const delayDays = Math.max(0, Math.round((today.getTime() - taskDate.getTime()) / 86_400_000));
+
+        const attachment = input.completionVideoId
+          ? { completionVideoId: input.completionVideoId, uploadedImageUrl: null }
+          : input.uploadedImageUrl
+            ? { uploadedImageUrl: input.uploadedImageUrl, completionVideoId: null }
+            : {};
+
+        return tx.checklistEntry.update({
+          where: { id: entryId },
+          data: {
+            // Re-submitting a completed task (e.g. replacing its attachment from
+            // the Completed tab) keeps the day it was really done — resetting it
+            // to today used to turn an on-time task into a late one.
+            ...(entry.actualDate ? {} : { actualDate: today, delayDays }),
+            completionStatus: input.completionStatus,
+            remarks: input.remarks,
+            ...attachment,
+            remarks1: input.remarks1,
+          },
+        });
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw Object.assign(new Error("This video is already attached to another task"), { status: 409 });
+      }
+      throw err;
     }
-
-    const taskDate = new Date(entry.taskStartDate);
-    taskDate.setUTCHours(0, 0, 0, 0);
-    const delayDays = Math.max(0, Math.round((today.getTime() - taskDate.getTime()) / 86_400_000));
-
-    return prisma.checklistEntry.update({
-      where: { id: entryId },
-      data: {
-        // Re-submitting a completed task (e.g. replacing its image from the
-        // Completed tab) keeps the day it was really done — resetting it to
-        // today used to turn an on-time task into a late one.
-        ...(entry.actualDate ? {} : { actualDate: today, delayDays }),
-        completionStatus: input.completionStatus,
-        remarks: input.remarks,
-        uploadedImageUrl: input.uploadedImageUrl,
-        remarks1: input.remarks1,
-      },
-    });
   },
 
   async markAdminDone(entryIds: bigint[]) {

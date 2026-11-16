@@ -34,6 +34,9 @@ export const submitChecklistSchema = z.object({
   completionStatus: z.enum(["YES", "NO", "NOT_REQUIRED", "NOT_APPLICABLE"]),
   remarks: z.string().optional(),
   uploadedImageUrl: z.string().optional(),
+  // A VideoAsset id (POST /api/videos). It may still be uploading — the task
+  // is marked done at once and the video catches up.
+  completionVideoId: z.string().cuid().optional(),
   remarks1: z.string().optional(),
 });
 

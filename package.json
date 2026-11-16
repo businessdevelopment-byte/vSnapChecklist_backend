@@ -25,6 +25,8 @@
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-rate-limit": "^7.2.0",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
@@ -38,6 +40,7 @@
     "@types/cookie-parser": "^1.4.7",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.3",
+    "@types/ffprobe-static": "^2.0.3",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/morgan": "^1.9.9",
     "@types/multer": "^2.1.0",
@@ -47,5 +50,8 @@
     "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.2.0": true
   }
 }

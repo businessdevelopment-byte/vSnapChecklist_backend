@@ -71,12 +71,26 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", env: env.NODE_ENV, allowedOrigins });
 });
 
-// Serve uploaded files — set cross-origin header so images load when embedded
+// Serve uploaded files — set cross-origin header so images load when embedded.
+// The CORS middleware above also answers here, which hls.js needs: it fetches
+// video playlists/segments with XHR from the frontend's origin.
 const uploadDirBase = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads"));
-app.use("/uploads", (_req, res, next) => {
+// A video still being uploaded is never served half-written.
+const UNFINISHED_VIDEO_FILE = /^\/videos\/[^/]+\/original\.part$/;
+// Everything under videos/<id>/ is written once and never changed (VOD).
+const VIDEO_FILE = /[\\/]videos[\\/][^\\/]+[\\/]/;
+app.use("/uploads", (req, res, next) => {
+  if (UNFINISHED_VIDEO_FILE.test(req.path)) {
+    res.status(404).end();
+    return;
+  }
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   next();
-}, express.static(uploadDirBase));
+}, express.static(uploadDirBase, {
+  setHeaders: (res, filePath) => {
+    if (VIDEO_FILE.test(filePath)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  },
+}));
 
 app.use((req, res, next) => {
   if (LOCKED_API_PATH_PREFIXES.some((prefix) => req.originalUrl.startsWith(prefix))) {

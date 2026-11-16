@@ -34,6 +34,8 @@ const templateFields = z.object({
   enableReminders: z.boolean().default(true),
   requireAttachment: z.boolean().default(false),
   sampleImageUrl: z.string().url().optional().nullable(),
+  // A VideoAsset id (POST /api/videos). It may still be uploading.
+  sampleVideoId: z.string().cuid().optional().nullable(),
 });
 
 export const createTemplateSchema = templateFields.superRefine(lastDateNotBeforeStart);

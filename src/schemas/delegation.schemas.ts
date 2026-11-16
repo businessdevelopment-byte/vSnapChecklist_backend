@@ -13,6 +13,8 @@ export const createDelegationSchema = z.object({
   enableReminders: z.boolean().default(true),
   requireAttachment: z.boolean().default(false),
   sampleImageUrl: z.string().url().optional().nullable(),
+  // A VideoAsset id (POST /api/videos). It may still be uploading.
+  sampleVideoId: z.string().cuid().optional().nullable(),
 });
 
 export const updateDelegationStatusSchema = z.object({
@@ -24,6 +26,8 @@ export const submitDelegationSchema = z.object({
   nextTargetDate: z.string().date().optional(),
   remarks: z.string().optional(),
   imageUrl: z.string().url().optional(),
+  // A VideoAsset id (POST /api/videos). It may still be uploading.
+  videoId: z.string().cuid().optional(),
 }).superRefine((data, ctx) => {
   if (data.status === "EXTEND_DATE" && !data.nextTargetDate) {
     ctx.addIssue({

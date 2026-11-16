@@ -23,6 +23,7 @@ router.get("/", delegationController.getAll);
 router.get("/:id", delegationController.getById);
 router.post("/", delegationController.create);
 router.patch("/:id/status", delegationController.updateStatus);
+router.patch("/:id/video", delegationController.setSampleVideo);  // admin: attach/replace/remove reference video
 router.delete("/:id", delegationController.softDelete);
 
 // Submit completion

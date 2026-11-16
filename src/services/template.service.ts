@@ -2,6 +2,7 @@ import { prisma } from "../config/database";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { pruneDeletedCodesFromPendingRequests } from "./transfer.service";
 import { invalidateMaterializeCache } from "./checklist.service";
+import { videoUploadService } from "./video/videoUpload.service";
 import type { CreateTemplateInput, UpdateTemplateInput, TemplateQueryInput, ImportTemplatesInput } from "../schemas/template.schemas";
 
 // Still on someone's to-do list — the Checklist page's Pending-tab definition.
@@ -86,9 +87,10 @@ export const templateService = {
     return template;
   },
 
-  async create(input: CreateTemplateInput) {
+  async create(input: CreateTemplateInput, requester: TemplateRequester) {
     const existing = await prisma.taskTemplate.findUnique({ where: { taskCode: input.taskCode } });
     if (existing) throw Object.assign(new Error(`Task code "${input.taskCode}" already exists`), { status: 409 });
+    if (input.sampleVideoId) await videoUploadService.assertAttachable(input.sampleVideoId, requester);
 
     const created = await prisma.taskTemplate.create({
       data: {
@@ -103,6 +105,7 @@ export const templateService = {
         enableReminders: input.enableReminders ?? true,
         requireAttachment: input.requireAttachment ?? false,
         sampleImageUrl: input.sampleImageUrl ?? null,
+        sampleVideoId: input.sampleVideoId ?? null,
       },
       include: {
         department: { select: { id: true, name: true } },
@@ -133,18 +136,32 @@ export const templateService = {
     if (nextLast && nextLast < nextStart) {
       throw Object.assign(new Error("Last date must be on or after the start date"), { status: 400 });
     }
+    const videoChanged = input.sampleVideoId !== undefined && input.sampleVideoId !== current.sampleVideoId;
+    if (videoChanged && input.sampleVideoId) await videoUploadService.assertAttachable(input.sampleVideoId, requester);
 
-    const updated = await prisma.taskTemplate.update({
-      where: { id },
-      data: {
-        ...input,
-        startDate: input.startDate ? new Date(input.startDate) : undefined,
-        lastDate: input.lastDate ? new Date(input.lastDate) : undefined,
-      },
-      include: {
-        department: { select: { id: true, name: true } },
-        assignedUser: { select: { id: true, username: true } },
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const saved = await tx.taskTemplate.update({
+        where: { id },
+        data: {
+          ...input,
+          startDate: input.startDate ? new Date(input.startDate) : undefined,
+          lastDate: input.lastDate ? new Date(input.lastDate) : undefined,
+        },
+        include: {
+          department: { select: { id: true, name: true } },
+          assignedUser: { select: { id: true, username: true } },
+        },
+      });
+      // Unlike the sample image, a new or removed video also reaches the days
+      // already generated and still to do — that is how a failed upload is
+      // fixed from Quick Task. Finished days keep what they had.
+      if (videoChanged) {
+        await tx.checklistEntry.updateMany({
+          where: { templateId: id, ...openEntry },
+          data: { sampleVideoId: input.sampleVideoId ?? null },
+        });
+      }
+      return saved;
     });
     invalidateMaterializeCache();
     return updated;
