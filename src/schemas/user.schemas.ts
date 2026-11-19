@@ -47,6 +47,12 @@ export const deleteAllUsersSchema = z.object({
   password: z.string().min(1, "Enter your password"),
 });
 
+export const resetUserPasswordSchema = z.object({
+  password: z.string().min(4, "At least 4 characters").max(100),
+});
+
+export type ResetUserPasswordInput = z.infer<typeof resetUserPasswordSchema>;
+
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type ImportUsersInput = z.infer<typeof importUsersSchema>;
 export type UpdateUserDeptsInput = z.infer<typeof updateUserDeptsSchema>;

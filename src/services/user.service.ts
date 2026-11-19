@@ -94,6 +94,21 @@ export const userService = {
     return flatten(await prisma.user.update({ where: { id }, data, select: USER_SELECT }));
   },
 
+  // Admin-only reset. Revokes the user's refresh tokens so the new password
+  // takes effect at their next refresh; the access token in their browser
+  // lives at most JWT_ACCESS_EXPIRES_IN more.
+  async resetPassword(id: number, password: string) {
+    const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await prisma.$transaction([
+      prisma.user.update({ where: { id }, data: { passwordHash } }),
+      prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ]);
+    return { id, username: user.username };
+  },
+
   async updateRole(id: number, role: "ADMIN" | "USER") {
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) throw Object.assign(new Error("User not found"), { status: 404 });
