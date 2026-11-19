@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { userService } from "../services/user.service";
 import { offboardingService } from "../services/offboarding.service";
 import { sendSuccess, sendError } from "../utils/apiResponse";
-import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema, updateUserEmployeeLinkSchema, deleteAllUsersSchema } from "../schemas/user.schemas";
+import { createUserSchema, updateUserStatusSchema, updateUserRoleSchema, updateUserDeptSchema, updateMyProfileSchema, importUsersSchema, updateUserDeptsSchema, updateUserEmployeeLinkSchema, deleteAllUsersSchema, resetUserPasswordSchema } from "../schemas/user.schemas";
 
 export const userController = {
   async getAll(req: Request, res: Response): Promise<void> {
@@ -65,6 +65,20 @@ export const userController = {
     } catch (err: unknown) {
       const e = err as { status?: number; message?: string };
       sendError(res, e.message ?? "Failed to update status", e.status ?? 400);
+    }
+  },
+
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    try {
+      if (req.user!.role !== "ADMIN") { sendError(res, "Admin only", 403); return; }
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) { sendError(res, "Invalid user id", 400); return; }
+      const { password } = resetUserPasswordSchema.parse(req.body);
+      const result = await userService.resetPassword(id, password);
+      sendSuccess(res, result, `Password reset for ${result.username}`);
+    } catch (err: unknown) {
+      const e = err as { status?: number; message?: string };
+      sendError(res, e.message ?? "Failed to reset password", e.status ?? 400);
     }
   },
 

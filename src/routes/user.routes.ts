@@ -12,6 +12,7 @@ router.get("/", userController.getAll);
 router.post("/", userController.create);
 router.post("/import", userController.importMany);
 router.patch("/:id/status", userController.updateStatus);
+router.patch("/:id/password", userController.resetPassword); // admin only: sets a new password, signs the user out on refresh
 router.patch("/:id/role", userController.updateRole);
 router.patch("/:id/department", userController.updateDepartment);
 router.patch("/:id/employee", userController.updateEmployeeLink);
